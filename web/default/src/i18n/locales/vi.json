@@ -4481,6 +4481,17 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Cost in USD per generated video second.": "Chi phí USD cho mỗi giây video được tạo.",
+    "Fixed second price": "Giá cố định theo giây",
+    "Per Second": "Theo giây",
+    "Per second": "Theo giây",
+    "Per-second": "Theo giây",
+    "Per-second (fixed price)": "Theo giây (giá cố định)",
+    "Per-second price": "Giá theo giây",
+    "Per-second price (USD)": "Giá theo giây (USD)",
+    "per second": "mỗi giây",
+    "second": "giây",
+    "Ali AIGC": "Ali AIGC"
   }
 }

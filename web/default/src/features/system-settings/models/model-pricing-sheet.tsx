@@ -84,7 +84,7 @@ type ModelPricingFormValues = z.infer<
   ReturnType<typeof createModelPricingSchema>
 >
 
-type PricingMode = 'per-token' | 'per-request' | 'tiered_expr'
+type PricingMode = 'per-token' | 'per-request' | 'per_second' | 'tiered_expr'
 type LaneKey =
   | 'completion'
   | 'cache'
@@ -275,6 +275,7 @@ function createInitialLaneState(data?: ModelRatioData | null) {
 
 function getModeLabel(mode: PricingMode) {
   if (mode === 'per-request') return 'Per-request'
+  if (mode === 'per_second') return 'Per-second'
   if (mode === 'tiered_expr') return 'Expression'
   return 'Per-token'
 }
@@ -283,6 +284,7 @@ function getModeBadgeVariant(
   mode: PricingMode
 ): 'default' | 'secondary' | 'outline' {
   if (mode === 'per-request') return 'secondary'
+  if (mode === 'per_second') return 'secondary'
   if (mode === 'tiered_expr') return 'default'
   return 'outline'
 }
@@ -312,6 +314,17 @@ function buildPreviewRows(
 
   if (mode === 'per-request') {
     return [
+      {
+        key: 'price',
+        label: 'ModelPrice',
+        value: values.price || t('Empty'),
+      },
+    ]
+  }
+
+  if (mode === 'per_second') {
+    return [
+      { key: 'mode', label: 'BillingMode', value: 'per_second' },
       {
         key: 'price',
         label: 'ModelPrice',
@@ -465,6 +478,8 @@ export function ModelPricingEditorPanel({
       setPricingMode(
         editData.billingMode === 'tiered_expr'
           ? 'tiered_expr'
+          : editData.billingMode === 'per_second'
+            ? 'per_second'
           : editData.price
             ? 'per-request'
             : 'per-token'
@@ -800,10 +815,13 @@ export function ModelPricingEditorPanel({
               />
 
               <Tabs value={pricingMode} onValueChange={handleModeChange}>
-                <TabsList className='grid w-full grid-cols-3'>
+                <TabsList className='grid w-full grid-cols-4'>
                   <TabsTrigger value='per-token'>{t('Per-token')}</TabsTrigger>
                   <TabsTrigger value='per-request'>
                     {t('Per-request')}
+                  </TabsTrigger>
+                  <TabsTrigger value='per_second'>
+                    {t('Per-second')}
                   </TabsTrigger>
                   <TabsTrigger value='tiered_expr'>
                     {t('Expression')}
@@ -885,6 +903,44 @@ export function ModelPricingEditorPanel({
                           {t(
                             'Cost in USD per request, regardless of tokens used.'
                           )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </TabsContent>
+
+                <TabsContent
+                  value='per_second'
+                  className='flex flex-col gap-5'
+                >
+                  <FormField
+                    control={form.control}
+                    name='price'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Per-second price')}</FormLabel>
+                        <FormControl>
+                          <InputGroup>
+                            <InputGroupAddon>$</InputGroupAddon>
+                            <InputGroupInput
+                              inputMode='decimal'
+                              placeholder='0.01'
+                              {...field}
+                              onChange={(event) => {
+                                const value = event.target.value
+                                if (numericDraftRegex.test(value)) {
+                                  field.onChange(value)
+                                }
+                              }}
+                            />
+                            <InputGroupAddon align='inline-end'>
+                              {t('per second')}
+                            </InputGroupAddon>
+                          </InputGroup>
+                        </FormControl>
+                        <FormDescription>
+                          {t('Cost in USD per generated video second.')}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

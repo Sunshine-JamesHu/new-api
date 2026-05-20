@@ -30,7 +30,7 @@ import {
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
 import { isTokenBasedModel } from '../lib/model-helpers'
-import { formatPrice, formatRequestPrice } from '../lib/price'
+import { formatPrice, formatRequestPrice, getFixedPriceUnit } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
 
@@ -194,7 +194,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
                       usdExchangeRate
                     )}
                   </span>{' '}
-                  / {t('request')}
+                  / {t(getFixedPriceUnit(props.model))}
                 </span>
               )}
             </div>
@@ -235,7 +235,11 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             </span>
           )}
           <span className='text-muted-foreground text-xs font-medium'>
-            {isTokenBased ? t('Token-based') : t('Per Request')}
+            {isTokenBased
+              ? t('Token-based')
+              : props.model.billing_mode === 'per_second'
+                ? t('Per Second')
+                : t('Per Request')}
           </span>
           {isDynamicPricing && (
             <StatusBadge

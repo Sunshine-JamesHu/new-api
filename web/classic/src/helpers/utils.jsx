@@ -754,6 +754,8 @@ export const calculateModelPrice = ({
 
     return {
       price: displayVal,
+      unit: record.billing_mode === 'per_second' ? 'second' : 'request',
+      isPerSecond: record.billing_mode === 'per_second',
       isPerToken: false,
       isTokensDisplay: false,
       usedGroup,
@@ -888,10 +890,10 @@ export const getModelPriceItems = (
 
   return [
     {
-      key: 'fixed',
-      label: t('模型价格'),
+      key: priceData.isPerSecond ? 'second' : 'fixed',
+      label: priceData.isPerSecond ? t('按秒价格') : t('模型价格'),
       value: priceData.price,
-      suffix: ` / ${t('次')}`,
+      suffix: ` / ${priceData.isPerSecond ? t('秒') : t('次')}`,
     },
   ].filter((item) => item.value !== null && item.value !== undefined && item.value !== '');
 };

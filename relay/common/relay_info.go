@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -697,8 +698,9 @@ func (t *TaskSubmitReq) HasImage() bool {
 func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 	type Alias TaskSubmitReq
 	aux := &struct {
-		Metadata json.RawMessage `json:"metadata,omitempty"`
-		Duration json.RawMessage `json:"duration,omitempty"`
+		Duration json.RawMessage `json:"duration"`
+		Seconds  json.RawMessage `json:"seconds"`
+		Metadata json.RawMessage `json:"metadata"`
 		*Alias
 	}{
 		Alias: (*Alias)(t),
@@ -713,12 +715,26 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 		if err := common.Unmarshal(aux.Duration, &durationInt); err == nil {
 			t.Duration = durationInt
 		} else {
-			var durationStr string
-			if err := common.Unmarshal(aux.Duration, &durationStr); err == nil && durationStr != "" {
-				if v, err := strconv.Atoi(durationStr); err == nil {
-					t.Duration = v
+			var durationFloat float64
+			if err := common.Unmarshal(aux.Duration, &durationFloat); err == nil {
+				t.Duration = int(math.Ceil(durationFloat))
+			} else {
+				var durationStr string
+				if err := common.Unmarshal(aux.Duration, &durationStr); err == nil && durationStr != "" {
+					if v, err := strconv.ParseFloat(durationStr, 64); err == nil {
+						t.Duration = int(math.Ceil(v))
+					}
 				}
 			}
+		}
+	}
+
+	if len(aux.Seconds) > 0 {
+		var secondsStr string
+		if err := common.Unmarshal(aux.Seconds, &secondsStr); err == nil {
+			t.Seconds = secondsStr
+		} else {
+			t.Seconds = common.JsonRawMessageToString(aux.Seconds)
 		}
 	}
 

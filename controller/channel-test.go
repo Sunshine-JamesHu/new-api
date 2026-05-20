@@ -65,6 +65,7 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 		constant.ChannelTypeSunoAPI,
 		constant.ChannelTypeKling,
 		constant.ChannelTypeJimeng,
+		constant.ChannelTypeAliBailian,
 		constant.ChannelTypeDoubaoVideo,
 		constant.ChannelTypeVidu,
 	}

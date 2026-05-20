@@ -154,6 +154,34 @@ func pricingByModelName(pricings []model.Pricing) map[string]model.Pricing {
 	return byName
 }
 
+func TestChannelModelsIncludeAliBailianVideoTaskModels(t *testing.T) {
+	require.Contains(t, openAIModelsMap, "kling/kling-v3-video-generation")
+	require.Contains(t, openAIModelsMap, "kling/kling-v3-omni-video-generation")
+	require.Contains(t, openAIModelsMap, "happyhorse-1.0-t2v")
+
+	aliModels := channelId2Models[constant.ChannelTypeAli]
+	require.NotContains(t, aliModels, "kling/kling-v3-video-generation")
+	require.NotContains(t, aliModels, "kling/kling-v3-omni-video-generation")
+	require.NotContains(t, aliModels, "happyhorse-1.0-t2v")
+	require.NotContains(t, aliModels, "happyhorse-1.0-video-edit")
+
+	aliBailianModels := channelId2Models[constant.ChannelTypeAliBailian]
+	require.Contains(t, aliBailianModels, "kling/kling-v3-video-generation")
+	require.Contains(t, aliBailianModels, "kling/kling-v3-omni-video-generation")
+	require.Contains(t, aliBailianModels, "happyhorse-1.0-t2v")
+	require.Contains(t, aliBailianModels, "happyhorse-1.0-video-edit")
+	require.NotContains(t, aliBailianModels, "qwen-plus")
+
+	require.Equal(
+		t,
+		[]constant.EndpointType{constant.EndpointTypeOpenAIVideo},
+		common.GetEndpointTypesByChannelType(constant.ChannelTypeAliBailian, "kling/kling-v3-video-generation"),
+	)
+	endpointInfo, ok := common.GetDefaultEndpointInfo(constant.EndpointTypeOpenAIVideo)
+	require.True(t, ok)
+	require.Equal(t, "/v1/videos", endpointInfo.Path)
+}
+
 func TestListModelsIncludesTieredBillingModel(t *testing.T) {
 	withSelfUseModeDisabled(t)
 	withTieredBillingConfig(t, map[string]string{

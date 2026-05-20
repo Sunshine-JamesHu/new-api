@@ -4481,6 +4481,17 @@
     "Zero retention": "Zero retention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Cost in USD per generated video second.": "Cost in USD per generated video second.",
+    "Fixed second price": "Fixed second price",
+    "Per Second": "Per Second",
+    "Per second": "Per second",
+    "Per-second": "Per-second",
+    "Per-second (fixed price)": "Per-second (fixed price)",
+    "Per-second price": "Per-second price",
+    "Per-second price (USD)": "Per-second price (USD)",
+    "per second": "per second",
+    "second": "second",
+    "Ali AIGC": "Ali AIGC"
   }
 }

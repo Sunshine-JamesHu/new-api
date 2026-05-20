@@ -3,6 +3,7 @@ package common
 import (
 	"testing"
 
+	commonjson "github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/stretchr/testify/require"
 )
@@ -37,4 +38,35 @@ func TestRelayInfoGetFinalRequestRelayFormatFallsBackToRelayFormat(t *testing.T)
 func TestRelayInfoGetFinalRequestRelayFormatNilReceiver(t *testing.T) {
 	var info *RelayInfo
 	require.Equal(t, types.RelayFormat(""), info.GetFinalRequestRelayFormat())
+}
+
+func TestTaskSubmitReqUnmarshalDurationAndSecondsVariants(t *testing.T) {
+	tests := []struct {
+		name         string
+		body         string
+		wantDuration int
+		wantSeconds  string
+	}{
+		{
+			name:         "numeric duration and seconds",
+			body:         `{"prompt":"p","model":"m","duration":7.2,"seconds":9}`,
+			wantDuration: 8,
+			wantSeconds:  "9",
+		},
+		{
+			name:         "string duration and seconds",
+			body:         `{"prompt":"p","model":"m","duration":"6.1","seconds":"8.5"}`,
+			wantDuration: 7,
+			wantSeconds:  "8.5",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var req TaskSubmitReq
+			require.NoError(t, commonjson.Unmarshal([]byte(tt.body), &req))
+			require.Equal(t, tt.wantDuration, req.Duration)
+			require.Equal(t, tt.wantSeconds, req.Seconds)
+		})
+	}
 }

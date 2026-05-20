@@ -11,6 +11,7 @@ import (
 const (
 	BillingModeRatio      = "ratio"
 	BillingModeTieredExpr = "tiered_expr"
+	BillingModePerSecond  = "per_second"
 	BillingModeField      = "billing_mode"
 	BillingExprField      = "billing_expr"
 )
@@ -40,6 +41,10 @@ func GetBillingMode(model string) string {
 		return mode
 	}
 	return BillingModeRatio
+}
+
+func IsPerSecondBilling(model string) bool {
+	return GetBillingMode(model) == BillingModePerSecond
 }
 
 func GetBillingExpr(model string) (string, bool) {

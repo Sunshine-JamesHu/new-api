@@ -3862,7 +3862,6 @@
     "透传请求头": "",
     "递归": "Đệ quy",
     "递归策略": "Chiến lược đệ quy",
-    "通义千问": "Qwen",
     "通用": "Chung",
     "通用设置": "Cài đặt chung",
     "通知": "Thông báo",
@@ -4213,6 +4212,14 @@
     "并确认自行承担部署": "confirm that I bear legal responsibility arising from deployment",
     "运营和收费行为产生的法律责任": "operation and charging behavior",
     "，": ", ",
-    "、": ", "
+    "、": ", ",
+    "$/秒": "$/giây",
+    "按秒": "Theo giây",
+    "按秒价格": "Giá theo giây",
+    "按秒计费": "Tính phí theo giây",
+    "输入每秒生成价格": "Nhập giá tạo mỗi giây",
+    "适合视频模型按生成秒数计费。": "Phù hợp với mô hình video tính phí theo số giây được tạo.",
+    "阿里 AIGC": "Alibaba AIGC",
+    "通义千问": "Qwen"
   }
 }

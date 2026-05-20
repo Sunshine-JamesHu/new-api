@@ -127,12 +127,16 @@ const filterBySelectedValues = (
 
 const getModeLabel = (mode?: string) => {
   if (mode === 'per-request') return 'Per-request'
+  if (mode === 'per_second') return 'Per-second'
   if (mode === 'tiered_expr') return 'Expression'
   return 'Per-token'
 }
 
-const getModeVariant = (mode?: string): 'warning' | 'info' | 'success' => {
+const getModeVariant = (
+  mode?: string
+): 'warning' | 'info' | 'success' | 'cyan' => {
   if (mode === 'per-request') return 'warning'
+  if (mode === 'per_second') return 'cyan'
   if (mode === 'tiered_expr') return 'info'
   return 'success'
 }
@@ -151,6 +155,9 @@ const getPriceSummary = (row: ModelRow, t: (key: string) => string) => {
   }
   if (row.billingMode === 'per-request') {
     return row.price ? `$${row.price} / ${t('request')}` : t('Unset price')
+  }
+  if (row.billingMode === 'per_second') {
+    return row.price ? `$${row.price} / ${t('second')}` : t('Unset price')
   }
 
   const inputPrice = ratioToPrice(row.ratio)
@@ -178,6 +185,9 @@ const getPriceDetail = (row: ModelRow, t: (key: string) => string) => {
   }
   if (row.billingMode === 'per-request') {
     return t('Fixed request price')
+  }
+  if (row.billingMode === 'per_second') {
+    return t('Fixed second price')
   }
 
   const inputPrice = ratioToPrice(row.ratio)
@@ -357,6 +367,22 @@ export const ModelRatioVisualEditor = memo(
           }
         }
 
+        if (modeForModel === 'per_second') {
+          return {
+            name,
+            price,
+            ratio,
+            cacheRatio: cache,
+            createCacheRatio: createCache,
+            completionRatio: completion,
+            imageRatio: image,
+            audioRatio: audio,
+            audioCompletionRatio: audioCompletion,
+            billingMode: 'per_second',
+            hasConflict: false,
+          }
+        }
+
         return {
           name,
           price,
@@ -400,6 +426,7 @@ export const ModelRatioVisualEditor = memo(
           (acc, model) => {
             const mode =
               model.billingMode === 'per-request' ||
+              model.billingMode === 'per_second' ||
               model.billingMode === 'tiered_expr'
                 ? model.billingMode
                 : 'per-token'
@@ -409,8 +436,12 @@ export const ModelRatioVisualEditor = memo(
           {
             'per-token': 0,
             'per-request': 0,
+            per_second: 0,
             tiered_expr: 0,
-          } as Record<'per-token' | 'per-request' | 'tiered_expr', number>
+          } as Record<
+            'per-token' | 'per-request' | 'per_second' | 'tiered_expr',
+            number
+          >
         ),
       [models]
     )
@@ -430,6 +461,8 @@ export const ModelRatioVisualEditor = memo(
           billingMode:
             model.billingMode === 'tiered_expr'
               ? 'tiered_expr'
+              : model.billingMode === 'per_second'
+                ? 'per_second'
               : model.price && model.price !== ''
                 ? 'per-request'
                 : 'per-token',
@@ -791,6 +824,9 @@ export const ModelRatioVisualEditor = memo(
             setIfPresent(imageMap, name, data.imageRatio)
             setIfPresent(audioMap, name, data.audioRatio)
             setIfPresent(audioCompletionMap, name, data.audioCompletionRatio)
+          } else if (data.billingMode === 'per_second') {
+            billingModeMap[name] = 'per_second'
+            setIfPresent(priceMap, name, data.price)
           } else if (data.price && data.price !== '') {
             setIfPresent(priceMap, name, data.price)
           } else {
@@ -896,6 +932,11 @@ export const ModelRatioVisualEditor = memo(
                       label: 'Per-request',
                       value: 'per-request',
                       count: modeCounts['per-request'],
+                    },
+                    {
+                      label: 'Per-second',
+                      value: 'per_second',
+                      count: modeCounts.per_second,
                     },
                     {
                       label: 'Expression',

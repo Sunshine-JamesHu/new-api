@@ -4481,6 +4481,17 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "Cost in USD per generated video second.": "每生成 1 秒视频的美元成本。",
+    "Fixed second price": "固定秒级价格",
+    "Per Second": "按秒计费",
+    "Per second": "按秒",
+    "Per-second": "按秒",
+    "Per-second (fixed price)": "按秒计费（固定价格）",
+    "Per-second price": "按秒价格",
+    "Per-second price (USD)": "按秒价格（美元）",
+    "per second": "每秒",
+    "second": "秒",
+    "Ali AIGC": "阿里 AIGC"
   }
 }

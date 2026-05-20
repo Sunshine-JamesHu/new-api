@@ -16,6 +16,7 @@ import (
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
+	taskali "github.com/QuantumNous/new-api/relay/channel/task/ali"
 	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
@@ -1009,6 +1010,14 @@ func FetchModels(c *gin.Context) {
 	baseURL := req.BaseURL
 	if baseURL == "" {
 		baseURL = constant.ChannelBaseURLs[req.Type]
+	}
+
+	if req.Type == constant.ChannelTypeAliBailian {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    taskali.ModelListForChannelType(req.Type),
+		})
+		return
 	}
 
 	// remove line breaks and extra spaces.

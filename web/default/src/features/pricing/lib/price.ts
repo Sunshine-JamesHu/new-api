@@ -295,3 +295,7 @@ export function formatRequestPrice(
     abbreviate: false,
   })
 }
+
+export function getFixedPriceUnit(model: PricingModel): string {
+  return model.billing_mode === 'per_second' ? 'second' : 'request'
+}

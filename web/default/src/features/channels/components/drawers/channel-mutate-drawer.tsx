@@ -436,6 +436,16 @@ export function ChannelMutateDrawer({
         (model) => model.startsWith('gpt-') || model.startsWith('text-')
       )
     }
+    if (currentType === 58) {
+      return allModelsList.filter((model) => {
+        const name = model.toLowerCase()
+        return (
+          name.startsWith('kling/') ||
+          name.startsWith('happyhorse-') ||
+          name.startsWith('wan')
+        )
+      })
+    }
     return allModelsList
   }, [allModelsList, currentType])
 

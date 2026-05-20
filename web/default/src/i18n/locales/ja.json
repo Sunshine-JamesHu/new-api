@@ -4481,6 +4481,17 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Cost in USD per generated video second.": "生成動画 1 秒あたりの米ドルコスト。",
+    "Fixed second price": "固定秒単価",
+    "Per Second": "秒単位",
+    "Per second": "秒単位",
+    "Per-second": "秒単位",
+    "Per-second (fixed price)": "秒単位（固定価格）",
+    "Per-second price": "秒単価",
+    "Per-second price (USD)": "秒単価（USD）",
+    "per second": "秒あたり",
+    "second": "秒",
+    "Ali AIGC": "Ali AIGC"
   }
 }

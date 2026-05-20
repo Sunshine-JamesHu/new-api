@@ -4481,6 +4481,17 @@
     "Zero retention": "Без хранения данных",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Cost in USD per generated video second.": "Стоимость в USD за секунду сгенерированного видео.",
+    "Fixed second price": "Фиксированная цена за секунду",
+    "Per Second": "За секунду",
+    "Per second": "За секунду",
+    "Per-second": "За секунду",
+    "Per-second (fixed price)": "За секунду (фиксированная цена)",
+    "Per-second price": "Цена за секунду",
+    "Per-second price (USD)": "Цена за секунду (USD)",
+    "per second": "за секунду",
+    "second": "секунда",
+    "Ali AIGC": "Ali AIGC"
   }
 }
