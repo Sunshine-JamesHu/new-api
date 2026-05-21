@@ -135,6 +135,8 @@ type AliUsage struct {
 }
 
 type aliVideoMetadataV2 struct {
+	Input          *aliVideoInputV2       `json:"input,omitempty"`
+	Parameters     *aliVideoParametersV2  `json:"parameters,omitempty"`
 	Model          string          `json:"model,omitempty"`
 	AudioURL       string          `json:"audio_url,omitempty"`
 	ImgURL         string          `json:"img_url,omitempty"`
@@ -492,12 +494,20 @@ func (a *TaskAdaptor) convertToAliRequestV2(info *relaycommon.RelayInfo, req rel
 		},
 	}
 
+	if _, err := aliValidatedRequestDuration(req); err != nil {
+		return nil, err
+	}
+
 	images := aliImagesFromRequest(req)
-	if len(images) > 0 {
-		aliReq.Input.ImgURL = images[0]
-		aliReq.Input.FirstFrameURL = images[0]
-		if len(images) > 1 {
-			aliReq.Input.LastFrameURL = images[1]
+	if len(images) > 0 && !aliTaskRequestHasMedia(req) {
+		if isAliNewFormatModel(upstreamModel) {
+			applyAliRequestMedia(upstreamModel, images, aliReq)
+		} else {
+			aliReq.Input.ImgURL = images[0]
+			aliReq.Input.FirstFrameURL = images[0]
+			if len(images) > 1 {
+				aliReq.Input.LastFrameURL = images[1]
+			}
 		}
 	}
 	if req.Mode != "" {
@@ -514,10 +524,6 @@ func (a *TaskAdaptor) convertToAliRequestV2(info *relaycommon.RelayInfo, req rel
 		return nil, err
 	}
 	aliReq.Parameters.Duration = duration
-	if isAliNewFormatModel(upstreamModel) {
-		applyAliRequestMedia(upstreamModel, images, aliReq)
-	}
-
 	if req.Metadata != nil {
 		var metadata aliVideoMetadataV2
 		metadataBytes, err := common.Marshal(req.Metadata)
@@ -534,6 +540,28 @@ func (a *TaskAdaptor) convertToAliRequestV2(info *relaycommon.RelayInfo, req rel
 			return nil, err
 		}
 	}
+	if req.Input != nil {
+		var input aliVideoInputV2
+		inputBytes, err := common.Marshal(req.Input)
+		if err != nil {
+			return nil, errors.Wrap(err, "marshal input failed")
+		}
+		if err := common.Unmarshal(inputBytes, &input); err != nil {
+			return nil, errors.Wrap(err, "unmarshal input failed")
+		}
+		applyAliInputOverride(&input, &aliReq.Input)
+	}
+	if req.Parameters != nil {
+		var parameters aliVideoParametersV2
+		parametersBytes, err := common.Marshal(req.Parameters)
+		if err != nil {
+			return nil, errors.Wrap(err, "marshal parameters failed")
+		}
+		if err := common.Unmarshal(parametersBytes, &parameters); err != nil {
+			return nil, errors.Wrap(err, "unmarshal parameters failed")
+		}
+		applyAliParameterOverride(&parameters, aliReq.Parameters)
+	}
 
 	if aliReq.Model != upstreamModel {
 		return nil, errors.New("can't change model with metadata")
@@ -545,6 +573,30 @@ func (a *TaskAdaptor) convertToAliRequestV2(info *relaycommon.RelayInfo, req rel
 	}
 
 	return aliReq, nil
+}
+
+func aliTaskRequestHasMedia(req relaycommon.TaskSubmitReq) bool {
+	if req.Input != nil {
+		if value, ok := req.Input["media"]; ok && value != nil {
+			return true
+		}
+	}
+	return aliMetadataHasMedia(req.Metadata)
+}
+
+func aliMetadataHasMedia(metadata map[string]interface{}) bool {
+	if metadata == nil {
+		return false
+	}
+	if value, ok := metadata["media"]; ok && value != nil {
+		return true
+	}
+	if input, ok := metadata["input"].(map[string]interface{}); ok {
+		if value, ok := input["media"]; ok && value != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func aliImagesFromRequest(req relaycommon.TaskSubmitReq) []string {
@@ -559,8 +611,22 @@ func aliImagesFromRequest(req relaycommon.TaskSubmitReq) []string {
 }
 
 func aliDurationFromRequest(req relaycommon.TaskSubmitReq) (int, error) {
+	if duration, err := aliValidatedRequestDuration(req); err != nil || duration > 0 {
+		return duration, err
+	}
+	return 5, nil
+}
+
+func aliValidatedRequestDuration(req relaycommon.TaskSubmitReq) (int, error) {
+	var durations []struct {
+		source string
+		value  int
+	}
 	if req.Duration > 0 {
-		return req.Duration, nil
+		durations = append(durations, struct {
+			source string
+			value  int
+		}{"duration", req.Duration})
 	}
 	if req.Seconds != "" {
 		seconds, err := parseAliPositiveInt(req.Seconds)
@@ -568,10 +634,72 @@ func aliDurationFromRequest(req relaycommon.TaskSubmitReq) (int, error) {
 			return 0, errors.Wrap(err, "convert seconds to int failed")
 		}
 		if seconds > 0 {
-			return seconds, nil
+			durations = append(durations, struct {
+				source string
+				value  int
+			}{"seconds", seconds})
 		}
 	}
-	return 5, nil
+	if duration, exists, err := aliDurationFromMap(req.Parameters); err != nil {
+		return 0, errors.Wrap(err, "convert parameters.duration to int failed")
+	} else if exists {
+		durations = append(durations, struct {
+			source string
+			value  int
+		}{"parameters.duration", duration})
+	}
+	if duration, exists, err := aliNestedDurationFromMap(req.Metadata, "parameters"); err != nil {
+		return 0, errors.Wrap(err, "convert metadata.parameters.duration to int failed")
+	} else if exists {
+		durations = append(durations, struct {
+			source string
+			value  int
+		}{"metadata.parameters.duration", duration})
+	}
+	if duration, exists, err := aliDurationFromMap(req.Metadata); err != nil {
+		return 0, errors.Wrap(err, "convert metadata.duration to int failed")
+	} else if exists {
+		durations = append(durations, struct {
+			source string
+			value  int
+		}{"metadata.duration", duration})
+	}
+	if len(durations) == 0 {
+		return 0, nil
+	}
+	expected := durations[0]
+	for _, duration := range durations[1:] {
+		if duration.value != expected.value {
+			return 0, fmt.Errorf("duration mismatch: %s=%d, %s=%d", expected.source, expected.value, duration.source, duration.value)
+		}
+	}
+	return expected.value, nil
+}
+
+func aliNestedDurationFromMap(values map[string]interface{}, key string) (int, bool, error) {
+	if values == nil {
+		return 0, false, nil
+	}
+	nested, ok := values[key].(map[string]interface{})
+	if !ok {
+		return 0, false, nil
+	}
+	return aliDurationFromMap(nested)
+}
+
+func aliDurationFromMap(values map[string]interface{}) (int, bool, error) {
+	if values == nil {
+		return 0, false, nil
+	}
+	value, ok := values["duration"]
+	if !ok || value == nil {
+		return 0, false, nil
+	}
+	duration, err := aliDurationFromAny(value)
+	if err != nil {
+		return 0, true, err
+	}
+	return duration, duration > 0, nil
 }
 
 func applyAliSize(modelName, size string, params *aliVideoParametersV2) {
@@ -640,6 +768,12 @@ func applyAliNewFormatDefaults(modelName string, aliReq *aliVideoRequestV2) {
 }
 
 func applyAliMetadata(metadata *aliVideoMetadataV2, aliReq *aliVideoRequestV2) error {
+	if metadata.Input != nil {
+		applyAliInputOverride(metadata.Input, &aliReq.Input)
+	}
+	if metadata.Parameters != nil {
+		applyAliParameterOverride(metadata.Parameters, aliReq.Parameters)
+	}
 	if metadata.ImgURL != "" {
 		aliReq.Input.ImgURL = metadata.ImgURL
 		aliReq.Input.FirstFrameURL = metadata.ImgURL
@@ -725,6 +859,81 @@ func applyAliMetadata(metadata *aliVideoMetadataV2, aliReq *aliVideoRequestV2) e
 		aliReq.Input.Media = normalizeAliVideoMedia(aliReq.Input.Media)
 	}
 	return nil
+}
+
+func applyAliInputOverride(source *aliVideoInputV2, target *aliVideoInputV2) {
+	if source.Prompt != "" {
+		target.Prompt = source.Prompt
+	}
+	if source.ImgURL != "" {
+		target.ImgURL = source.ImgURL
+	}
+	if source.FirstFrameURL != "" {
+		target.FirstFrameURL = source.FirstFrameURL
+	}
+	if source.LastFrameURL != "" {
+		target.LastFrameURL = source.LastFrameURL
+	}
+	if source.AudioURL != "" {
+		target.AudioURL = source.AudioURL
+	}
+	if source.NegativePrompt != "" {
+		target.NegativePrompt = source.NegativePrompt
+	}
+	if source.Template != "" {
+		target.Template = source.Template
+	}
+	if len(source.Media) > 0 {
+		target.Media = normalizeAliVideoMedia(source.Media)
+	}
+	if source.MultiPrompt != nil {
+		target.MultiPrompt = source.MultiPrompt
+	}
+	if source.ElementList != nil {
+		target.ElementList = source.ElementList
+	}
+	if source.ReferenceVoice != nil {
+		target.ReferenceVoice = source.ReferenceVoice
+	}
+}
+
+func applyAliParameterOverride(source *aliVideoParametersV2, target *aliVideoParametersV2) {
+	if source.Resolution != "" {
+		target.Resolution = source.Resolution
+	}
+	if source.Size != "" {
+		target.Size = source.Size
+	}
+	if source.Duration > 0 {
+		target.Duration = source.Duration
+	}
+	if source.PromptExtend != nil {
+		target.PromptExtend = source.PromptExtend
+	}
+	if source.Watermark != nil {
+		target.Watermark = source.Watermark
+	}
+	if source.Audio != nil {
+		target.Audio = source.Audio
+	}
+	if source.Seed > 0 {
+		target.Seed = source.Seed
+	}
+	if source.Ratio != "" {
+		target.Ratio = source.Ratio
+	}
+	if source.AspectRatio != "" {
+		target.AspectRatio = source.AspectRatio
+	}
+	if source.Mode != "" {
+		target.Mode = source.Mode
+	}
+	if source.ShotType != "" {
+		target.ShotType = source.ShotType
+	}
+	if source.AudioSetting != nil {
+		target.AudioSetting = source.AudioSetting
+	}
 }
 
 func aliDurationFromAny(value any) (int, error) {

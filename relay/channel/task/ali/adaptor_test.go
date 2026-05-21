@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/gin-gonic/gin"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -86,6 +87,164 @@ func TestConvertHappyHorseMediaModels(t *testing.T) {
 				require.Empty(t, req.Input.Media[i].ImageURL)
 				require.Empty(t, req.Input.Media[i].VideoURL)
 			}
+			require.Empty(t, req.Input.ImgURL)
+			require.Empty(t, req.Input.FirstFrameURL)
+			require.Empty(t, req.Input.LastFrameURL)
+		})
+	}
+}
+
+func TestConvertAliNewFormatPreservesExplicitMedia(t *testing.T) {
+	req, err := (&TaskAdaptor{}).convertToAliRequestV2(aliUnmappedRelayInfo(), relaycommon.TaskSubmitReq{
+		Model:  "happyhorse-1.0-r2v",
+		Prompt: "scene",
+		Images: []string{"https://example.com/compat.png"},
+		Metadata: map[string]interface{}{
+			"media": []interface{}{
+				map[string]interface{}{"type": "reference_image", "url": "https://example.com/ref-a.png"},
+				map[string]interface{}{"type": "reference_image", "url": "https://example.com/ref-b.png"},
+				map[string]interface{}{"type": "reference_image", "url": "data:image/png;base64,abc"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, req.Input.Media, 3)
+	require.Equal(t, "https://example.com/ref-a.png", req.Input.Media[0].URL)
+	require.Equal(t, "https://example.com/ref-b.png", req.Input.Media[1].URL)
+	require.Equal(t, "data:image/png;base64,abc", req.Input.Media[2].URL)
+	require.NotContains(t, lo.Map(req.Input.Media, func(item aliVideoMedia, _ int) string {
+		return item.URL
+	}), "https://example.com/compat.png")
+}
+
+func TestConvertAliNewFormatPreservesExplicitInputAndParameters(t *testing.T) {
+	watermark := true
+	req, err := (&TaskAdaptor{}).convertToAliRequestV2(aliUnmappedRelayInfo(), relaycommon.TaskSubmitReq{
+		Model:  "kling/kling-v3-omni-video-generation",
+		Prompt: "outer prompt",
+		Images: []string{"https://example.com/compat.png"},
+		Metadata: map[string]interface{}{
+			"input": map[string]interface{}{
+				"prompt": "inner prompt",
+				"media": []interface{}{
+					map[string]interface{}{"type": "base", "url": "https://example.com/base.mp4"},
+					map[string]interface{}{"type": "reference_image", "image_url": "https://example.com/ref.png"},
+				},
+			},
+			"parameters": map[string]interface{}{
+				"duration":  8,
+				"watermark": watermark,
+				"mode":      "std",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "inner prompt", req.Input.Prompt)
+	require.Len(t, req.Input.Media, 2)
+	require.Equal(t, "base", req.Input.Media[0].Type)
+	require.Equal(t, "https://example.com/base.mp4", req.Input.Media[0].URL)
+	require.Equal(t, "reference_image", req.Input.Media[1].Type)
+	require.Equal(t, "https://example.com/ref.png", req.Input.Media[1].URL)
+	require.Equal(t, 8, req.Parameters.Duration)
+	require.Equal(t, "std", req.Parameters.Mode)
+	require.NotNil(t, req.Parameters.Watermark)
+	require.True(t, *req.Parameters.Watermark)
+}
+
+func TestConvertAliNativeHappyHorseRequestShapes(t *testing.T) {
+	tests := []struct {
+		name       string
+		model      string
+		input      map[string]interface{}
+		parameters map[string]interface{}
+		wantMedia  []aliVideoMedia
+	}{
+		{
+			name:  "text to video",
+			model: "happyhorse-1.0-t2v",
+			input: map[string]interface{}{
+				"prompt": "一座由硬纸板和瓶盖搭建的微型城市",
+			},
+			parameters: map[string]interface{}{
+				"resolution": "720P",
+				"ratio":      "16:9",
+				"duration":   5,
+			},
+		},
+		{
+			name:  "image to video",
+			model: "happyhorse-1.0-i2v",
+			input: map[string]interface{}{
+				"prompt": "一只猫在草地上奔跑",
+				"media": []interface{}{
+					map[string]interface{}{"type": "first_frame", "url": "https://cdn.translate.alibaba.com/r/wanx-demo-1.png"},
+				},
+			},
+			parameters: map[string]interface{}{
+				"resolution": "720P",
+				"duration":   5,
+			},
+			wantMedia: []aliVideoMedia{{Type: "first_frame", URL: "https://cdn.translate.alibaba.com/r/wanx-demo-1.png"}},
+		},
+		{
+			name:  "reference to video",
+			model: "happyhorse-1.0-r2v",
+			input: map[string]interface{}{
+				"prompt": "[Image 1] 和 [Image 2] 作为参考",
+				"media": []interface{}{
+					map[string]interface{}{"type": "reference_image", "url": "https://example.com/1.jpg"},
+					map[string]interface{}{"type": "reference_image", "url": "https://example.com/2.jpg"},
+					map[string]interface{}{"type": "reference_image", "url": "https://example.com/3.jpg"},
+				},
+			},
+			parameters: map[string]interface{}{
+				"resolution": "720P",
+				"ratio":      "16:9",
+				"duration":   5,
+			},
+			wantMedia: []aliVideoMedia{
+				{Type: "reference_image", URL: "https://example.com/1.jpg"},
+				{Type: "reference_image", URL: "https://example.com/2.jpg"},
+				{Type: "reference_image", URL: "https://example.com/3.jpg"},
+			},
+		},
+		{
+			name:  "video edit",
+			model: "happyhorse-1.0-video-edit",
+			input: map[string]interface{}{
+				"prompt": "让视频中的角色穿上图片中的条纹毛衣",
+				"media": []interface{}{
+					map[string]interface{}{"type": "video", "url": "https://example.com/in.mp4"},
+					map[string]interface{}{"type": "reference_image", "url": "https://example.com/clothes.webp"},
+				},
+			},
+			parameters: map[string]interface{}{
+				"resolution": "720P",
+			},
+			wantMedia: []aliVideoMedia{
+				{Type: "video", URL: "https://example.com/in.mp4"},
+				{Type: "reference_image", URL: "https://example.com/clothes.webp"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, err := (&TaskAdaptor{}).convertToAliRequestV2(aliUnmappedRelayInfo(), relaycommon.TaskSubmitReq{
+				Model:      tt.model,
+				Input:      tt.input,
+				Parameters: tt.parameters,
+			})
+			require.NoError(t, err)
+			require.Equal(t, tt.model, req.Model)
+			require.Equal(t, tt.input["prompt"], req.Input.Prompt)
+			require.Equal(t, tt.wantMedia, req.Input.Media)
+			if resolution, ok := tt.parameters["resolution"].(string); ok {
+				require.Equal(t, resolution, req.Parameters.Resolution)
+			}
+			if duration, ok := tt.parameters["duration"].(int); ok {
+				require.Equal(t, duration, req.Parameters.Duration)
+			}
 		})
 	}
 }
@@ -138,6 +297,38 @@ func TestConvertAliDurationStringSources(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, 8, req.Parameters.Duration)
+}
+
+func TestConvertAliDurationSourcesMustMatch(t *testing.T) {
+	req, err := (&TaskAdaptor{}).convertToAliRequestV2(aliUnmappedRelayInfo(), relaycommon.TaskSubmitReq{
+		Model:    "happyhorse-1.0-r2v",
+		Prompt:   "horse",
+		Duration: 8,
+		Seconds:  "8",
+		Parameters: map[string]interface{}{
+			"duration": 8,
+		},
+		Metadata: map[string]interface{}{
+			"parameters": map[string]interface{}{
+				"duration": 8,
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 8, req.Parameters.Duration)
+
+	_, err = (&TaskAdaptor{}).convertToAliRequestV2(aliUnmappedRelayInfo(), relaycommon.TaskSubmitReq{
+		Model:    "happyhorse-1.0-r2v",
+		Prompt:   "horse",
+		Duration: 8,
+		Metadata: map[string]interface{}{
+			"parameters": map[string]interface{}{
+				"duration": 5,
+			},
+		},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "duration mismatch")
 }
 
 func TestBuildAliBailianRequestBodyUsesMappedModelForLogic(t *testing.T) {

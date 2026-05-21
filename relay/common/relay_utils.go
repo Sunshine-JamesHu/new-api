@@ -141,6 +141,11 @@ func ValidateMultipartDirect(c *gin.Context, info *RelayInfo) *dto.TaskError {
 	}
 
 	prompt = req.Prompt
+	if prompt == "" && req.Input != nil {
+		if inputPrompt, ok := req.Input["prompt"].(string); ok {
+			prompt = inputPrompt
+		}
+	}
 	model = req.Model
 	size = req.Size
 	if req.Seconds != "" {

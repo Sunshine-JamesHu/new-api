@@ -684,6 +684,8 @@ type TaskSubmitReq struct {
 	Duration       int                    `json:"duration,omitempty"`
 	Seconds        string                 `json:"seconds,omitempty"`
 	InputReference string                 `json:"input_reference,omitempty"`
+	Input          map[string]interface{} `json:"input,omitempty"`
+	Parameters     map[string]interface{} `json:"parameters,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
 
@@ -700,6 +702,7 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 	aux := &struct {
 		Duration json.RawMessage `json:"duration"`
 		Seconds  json.RawMessage `json:"seconds"`
+		Input    json.RawMessage `json:"input"`
 		Metadata json.RawMessage `json:"metadata"`
 		*Alias
 	}{
@@ -735,6 +738,16 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 			t.Seconds = secondsStr
 		} else {
 			t.Seconds = common.JsonRawMessageToString(aux.Seconds)
+		}
+	}
+
+	if len(aux.Input) > 0 {
+		var inputObj map[string]interface{}
+		if err := common.Unmarshal(aux.Input, &inputObj); err == nil {
+			t.Input = inputObj
+			if prompt, ok := inputObj["prompt"].(string); ok && t.Prompt == "" {
+				t.Prompt = prompt
+			}
 		}
 	}
 

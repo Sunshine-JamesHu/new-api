@@ -17,6 +17,9 @@ function parseArgs(argv) {
     maxPolls: 60,
     provider: 'all',
     task: 'all',
+    caseName: '',
+    promptFile: '',
+    bodyFile: '',
     run: false,
     poll: true,
     t2vOnly: false,
@@ -54,6 +57,15 @@ function parseArgs(argv) {
         break
       case '--task':
         args.task = next()
+        break
+      case '--case':
+        args.caseName = next()
+        break
+      case '--prompt-file':
+        args.promptFile = next()
+        break
+      case '--body-file':
+        args.bodyFile = next()
         break
       case '--run':
         args.run = true
@@ -110,6 +122,9 @@ Options:
   --duration N             Video duration in seconds. Default: 15
   --provider NAME          all, happyhorse, or kling. Default: all
   --task NAME              all, t2v, i2v, or r2v. Default: all
+  --case NAME              Only run one generated case, e.g. happyhorse-r2v.
+  --prompt-file PATH       Read a UTF-8 prompt file and apply it to selected cases.
+  --body-file PATH         Submit one UTF-8 JSON request body exactly as written.
   --no-poll                Submit only, do not poll task completion.
   --t2v-only               Only include text-to-video cases.
   --i2v-only               Only include image-to-video cases.
@@ -146,7 +161,14 @@ function merge(...objects) {
   return Object.assign({}, ...objects)
 }
 
-function buildCases({ duration, includeT2V, includeI2V, includeR2V, provider }) {
+function applyPromptOverride(cases, promptOverride) {
+  if (!promptOverride) {
+    return cases
+  }
+  return cases.map((item) => ({ ...item, prompt: promptOverride }))
+}
+
+function buildCases({ duration, includeT2V, includeI2V, includeR2V, provider, promptOverride }) {
   const { t2vPrompt, i2vPrompt, r2vPrompt } = buildPrompts()
   const baseMetadata = {
     duration,
@@ -222,7 +244,7 @@ function buildCases({ duration, includeT2V, includeI2V, includeR2V, provider }) 
       withImage: true,
     })
   }
-  return cases
+  return applyPromptOverride(cases, promptOverride)
 }
 
 function redact(value) {
@@ -232,6 +254,10 @@ function redact(value) {
 }
 
 function summarizeBody(body) {
+  const prompt = body.prompt || body.input?.prompt || ''
+  const promptHasReplacement = prompt.includes('\uFFFD')
+  const promptHasQuestionRun = /\?{3,}/.test(prompt)
+  const media = body.input?.media || body.metadata?.input?.media || body.metadata?.media || []
   return {
     model: body.model,
     duration: body.duration,
@@ -247,7 +273,11 @@ function summarizeBody(body) {
             : 'raw'
       : '',
     metadata: body.metadata,
-    prompt: `${body.prompt.slice(0, 90)}...`,
+    inputMediaCount: Array.isArray(media) ? media.length : 0,
+    promptLength: prompt.length,
+    promptHasReplacement,
+    promptHasQuestionRun,
+    prompt: `${prompt.slice(0, 90)}...`,
   }
 }
 
@@ -302,16 +332,35 @@ async function pollVideo({ baseUrl, apiKey, taskId, pollIntervalMs, maxPolls }) 
 
 async function main() {
   const args = parseArgs(process.argv.slice(2))
+  if (args.bodyFile) {
+    const body = JSON.parse(await readFile(args.bodyFile, 'utf8'))
+    const item = {
+      name: args.caseName || body.model || 'custom-body',
+      model: body.model,
+      body,
+    }
+    await runBodies(args, [item])
+    return
+  }
+
+  const promptOverride = args.promptFile ? (await readFile(args.promptFile, 'utf8')).trim() : ''
   const includeT2V = args.task === 'all' || args.task === 't2v' ? !args.i2vOnly : false
   const includeI2V = args.task === 'all' || args.task === 'i2v' ? !args.t2vOnly : false
   const includeR2V = args.task === 'all' || args.task === 'r2v' ? !args.t2vOnly : false
-  const cases = buildCases({
+  let cases = buildCases({
     duration: args.duration,
     includeT2V,
     includeI2V,
     includeR2V,
     provider: args.provider,
+    promptOverride,
   })
+  if (args.caseName) {
+    cases = cases.filter((item) => item.name === args.caseName)
+    if (cases.length === 0) {
+      throw new Error(`No case matched --case ${args.caseName}`)
+    }
+  }
 
   let imagePayload = ''
   if (args.imageUrl) {
@@ -335,11 +384,16 @@ async function main() {
     return { ...item, body }
   })
 
+  await runBodies(args, bodies, { includeI2V, imagePayload })
+}
+
+async function runBodies(args, bodies, options = {}) {
+  const imagePayload = options.imagePayload || ''
   console.log(`Base URL: ${args.baseUrl}`)
   console.log(`API key: ${redact(args.apiKey) || '(missing)'}`)
   console.log(`Duration: ${args.duration}s`)
   console.log(`Mode: ${args.run ? 'RUN, paid requests may be sent' : 'DRY RUN, no requests will be sent'}`)
-  if (includeI2V && !imagePayload) {
+  if (options.includeI2V && !options.imagePayload) {
     console.warn(
       'I2V cases need --image-url with public HTTPS/oss:// URL. Use --use-base64-image only to test current base64 failure behavior.'
     )
