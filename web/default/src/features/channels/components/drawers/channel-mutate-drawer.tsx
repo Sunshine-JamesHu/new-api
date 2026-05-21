@@ -436,7 +436,7 @@ export function ChannelMutateDrawer({
         (model) => model.startsWith('gpt-') || model.startsWith('text-')
       )
     }
-    if (currentType === 58) {
+    if (currentType === 999) {
       return allModelsList.filter((model) => {
         const name = model.toLowerCase()
         return (

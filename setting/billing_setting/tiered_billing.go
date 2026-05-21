@@ -2,6 +2,7 @@ package billing_setting
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/setting/config"
@@ -9,23 +10,27 @@ import (
 )
 
 const (
-	BillingModeRatio      = "ratio"
-	BillingModeTieredExpr = "tiered_expr"
-	BillingModePerSecond  = "per_second"
-	BillingModeField      = "billing_mode"
-	BillingExprField      = "billing_expr"
+	BillingModeRatio          = "ratio"
+	BillingModeTieredExpr     = "tiered_expr"
+	BillingModePerSecond      = "per_second"
+	BillingModeField          = "billing_mode"
+	BillingExprField          = "billing_expr"
+	PerSecondMultipliersField = "per_second_multipliers"
 )
 
 // BillingSetting is managed by config.GlobalConfig.Register.
-// DB keys: billing_setting.billing_mode, billing_setting.billing_expr
+// DB keys: billing_setting.billing_mode, billing_setting.billing_expr,
+// billing_setting.per_second_multipliers.
 type BillingSetting struct {
-	BillingMode map[string]string `json:"billing_mode"`
-	BillingExpr map[string]string `json:"billing_expr"`
+	BillingMode          map[string]string             `json:"billing_mode"`
+	BillingExpr          map[string]string             `json:"billing_expr"`
+	PerSecondMultipliers map[string]map[string]float64 `json:"per_second_multipliers"`
 }
 
 var billingSetting = BillingSetting{
-	BillingMode: make(map[string]string),
-	BillingExpr: make(map[string]string),
+	BillingMode:          make(map[string]string),
+	BillingExpr:          make(map[string]string),
+	PerSecondMultipliers: make(map[string]map[string]float64),
 }
 
 func init() {
@@ -60,13 +65,61 @@ func GetBillingExprCopy() map[string]string {
 	return lo.Assign(billingSetting.BillingExpr)
 }
 
+func validPerSecondMultiplier(value float64) bool {
+	return value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
+func sanitizePerSecondMultipliers(src map[string]map[string]float64) map[string]map[string]float64 {
+	cleaned := make(map[string]map[string]float64)
+	for model, multipliers := range src {
+		if model == "" || len(multipliers) == 0 {
+			continue
+		}
+		modelMultipliers := make(map[string]float64)
+		for key, value := range multipliers {
+			if key == "" || !validPerSecondMultiplier(value) {
+				continue
+			}
+			modelMultipliers[key] = value
+		}
+		if len(modelMultipliers) > 0 {
+			cleaned[model] = modelMultipliers
+		}
+	}
+	return cleaned
+}
+
+func GetPerSecondMultipliers(model string) map[string]float64 {
+	multipliers, ok := sanitizePerSecondMultipliers(billingSetting.PerSecondMultipliers)[model]
+	if !ok {
+		return nil
+	}
+	return lo.Assign(multipliers)
+}
+
+func GetPerSecondMultiplier(model, key string) (float64, bool) {
+	multipliers := GetPerSecondMultipliers(model)
+	if len(multipliers) == 0 {
+		return 0, false
+	}
+	value, ok := multipliers[key]
+	return value, ok
+}
+
+func GetPerSecondMultipliersCopy() map[string]map[string]float64 {
+	return sanitizePerSecondMultipliers(billingSetting.PerSecondMultipliers)
+}
+
 func GetPricingSyncData(base map[string]any) map[string]any {
-	extra := make(map[string]any, 2)
+	extra := make(map[string]any, 3)
 	if modes := GetBillingModeCopy(); len(modes) > 0 {
 		extra[BillingModeField] = modes
 	}
 	if exprs := GetBillingExprCopy(); len(exprs) > 0 {
 		extra[BillingExprField] = exprs
+	}
+	if multipliers := GetPerSecondMultipliersCopy(); len(multipliers) > 0 {
+		extra[PerSecondMultipliersField] = multipliers
 	}
 	return lo.Assign(base, extra)
 }

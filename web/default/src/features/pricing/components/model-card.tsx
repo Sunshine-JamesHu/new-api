@@ -30,7 +30,13 @@ import {
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
 import { isTokenBasedModel } from '../lib/model-helpers'
-import { formatPrice, formatRequestPrice, getFixedPriceUnit } from '../lib/price'
+import {
+  formatPrice,
+  formatRequestPrice,
+  getFixedPriceUnit,
+  getPerSecondResolutionPricesFromMinGroup,
+  stripTrailingZeros,
+} from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
 
@@ -73,6 +79,15 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         groupRatioMultiplier: getDynamicDisplayGroupRatio(props.model),
       })
     : null
+  const resolutionPrices =
+    !isTokenBased && props.model.billing_mode === 'per_second'
+      ? getPerSecondResolutionPricesFromMinGroup(
+          props.model,
+          showRechargePrice,
+          priceRate,
+          usdExchangeRate
+        )
+      : []
 
   const primaryGroup = groups[0]
   const bottomTags = [...endpoints.slice(0, 2), ...tags.slice(0, 2)]
@@ -183,6 +198,21 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
                       </span>
                     </span>
                   )}
+                </>
+              ) : props.model.billing_mode === 'per_second' ? (
+                <>
+                  {resolutionPrices.map((item) => (
+                    <span
+                      key={item.key}
+                      className='text-muted-foreground whitespace-nowrap'
+                    >
+                      {item.label}{' '}
+                      <span className='text-foreground font-mono font-semibold'>
+                        {stripTrailingZeros(item.formatted)}
+                      </span>
+                      /{t('second')}
+                    </span>
+                  ))}
                 </>
               ) : (
                 <span className='text-muted-foreground whitespace-nowrap'>

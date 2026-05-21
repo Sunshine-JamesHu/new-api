@@ -9,6 +9,8 @@ import (
 
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -215,4 +217,58 @@ func TestProcessAliOtherRatios(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1.6/0.9, ratios["resolution-1080P"])
+}
+
+func TestProcessAliOtherRatiosEmitsResolutionKeyWithoutDefaultMultiplier(t *testing.T) {
+	ratios, err := ProcessAliOtherRatios(&aliVideoRequestV2{
+		Model: "unknown-video-model",
+		Parameters: &aliVideoParametersV2{
+			Resolution: "720p",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1.0, ratios["resolution-720P"])
+}
+
+func TestAliEstimateBillingAppliesConfiguredPerSecondMultiplier(t *testing.T) {
+	withAliBillingConfig(t, map[string]string{
+		"billing_setting.billing_mode": `{"happyhorse-1.0-t2v":"per_second"}`,
+		"billing_setting.per_second_multipliers": `{
+			"happyhorse-1.0-t2v":{"resolution-1080P":2.25}
+		}`,
+	})
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", bytes.NewBufferString(`{
+		"model":"happyhorse-1.0-t2v",
+		"prompt":"horse",
+		"size":"1080p",
+		"duration":6
+	}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	info := aliRelayInfo("happyhorse-1.0-t2v", "", false)
+	adaptor := &TaskAdaptor{ChannelType: constant.ChannelTypeAliBailian}
+	taskErr := adaptor.ValidateRequestAndSetAction(c, info)
+	require.Nil(t, taskErr)
+
+	ratios := adaptor.EstimateBilling(c, info)
+	require.Equal(t, float64(6), ratios["seconds"])
+	require.Equal(t, 2.25, ratios["resolution-1080P"])
+}
+
+func withAliBillingConfig(t *testing.T, values map[string]string) {
+	t.Helper()
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+	})
+	require.NoError(t, config.GlobalConfig.LoadFromDB(values))
+	_ = billing_setting.GetBillingMode("")
 }

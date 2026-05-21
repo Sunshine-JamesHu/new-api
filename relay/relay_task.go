@@ -19,6 +19,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -192,6 +193,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 			info.PriceData.AddOtherRatio(k, v)
 		}
 	}
+	applyConfiguredPerSecondMultipliers(info)
 
 	// 6. 将 OtherRatios 应用到基础额度
 	if !common.StringsContains(constant.TaskPricePatches, modelName) {
@@ -255,6 +257,17 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		Platform:       platform,
 		Quota:          finalQuota,
 	}, nil
+}
+
+func applyConfiguredPerSecondMultipliers(info *relaycommon.RelayInfo) {
+	if info == nil || !billing_setting.IsPerSecondBilling(info.OriginModelName) || len(info.PriceData.OtherRatios) == 0 {
+		return
+	}
+	for key := range info.PriceData.OtherRatios {
+		if multiplier, ok := billing_setting.GetPerSecondMultiplier(info.OriginModelName, key); ok {
+			info.PriceData.AddOtherRatio(key, multiplier)
+		}
+	}
 }
 
 // recalcQuotaFromRatios 根据 adjustedRatios 重新计算 quota。

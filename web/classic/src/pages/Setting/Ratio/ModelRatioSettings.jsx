@@ -48,6 +48,7 @@ export default function ModelRatioSettings(props) {
     ImageRatio: '',
     AudioRatio: '',
     AudioCompletionRatio: '',
+    'billing_setting.per_second_multipliers': '{}',
     ExposeRatioEnabled: false,
   });
   const refForm = useRef();
@@ -243,6 +244,33 @@ export default function ModelRatioSettings(props) {
               ]}
               onChange={(value) =>
                 setInputs({ ...inputs, CompletionRatio: value })
+              }
+            />
+          </Col>
+        </Row>
+        <Row gutter={16}>
+          <Col xs={24} sm={16}>
+            <Form.TextArea
+              label={t('按秒分辨率倍率')}
+              extraText={t(
+                '为一个 JSON 文本，键为模型名称，值为分辨率到倍率的映射，例如：{"happyhorse-1.0-t2v":{"resolution-720P":1,"resolution-1080P":1.777778}}',
+              )}
+              placeholder='{"happyhorse-1.0-t2v":{"resolution-720P":1,"resolution-1080P":1.777778}}'
+              field={'billing_setting.per_second_multipliers'}
+              autosize={{ minRows: 6, maxRows: 12 }}
+              trigger='blur'
+              stopValidateWithError
+              rules={[
+                {
+                  validator: (rule, value) => verifyJSON(value),
+                  message: '不是合法的 JSON 字符串',
+                },
+              ]}
+              onChange={(value) =>
+                setInputs({
+                  ...inputs,
+                  'billing_setting.per_second_multipliers': value,
+                })
               }
             />
           </Col>

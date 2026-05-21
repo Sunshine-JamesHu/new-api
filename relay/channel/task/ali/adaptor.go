@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/samber/lo"
 
 	"github.com/gin-gonic/gin"
@@ -345,6 +346,12 @@ func ProcessAliOtherRatios(aliReq *aliVideoRequestV2) (map[string]float64, error
 	if otherRatio, ok := aliRatios[aliReq.Model]; ok {
 		if ratio, ok := otherRatio[resolution]; ok {
 			otherRatios[fmt.Sprintf("resolution-%s", resolution)] = ratio
+		}
+	}
+	if resolution != "" {
+		resolutionKey := fmt.Sprintf("resolution-%s", resolution)
+		if _, exists := otherRatios[resolutionKey]; !exists {
+			otherRatios[resolutionKey] = 1
 		}
 	}
 	if isAliKlingModel(aliReq.Model) && aliReq.Parameters != nil && aliReq.Parameters.Audio != nil && *aliReq.Parameters.Audio {
@@ -991,6 +998,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 		for k, v := range ratios {
 			otherRatios[k] = v
 		}
+		applyAliConfiguredMultiplierFallbacks(info, otherRatios)
 		return otherRatios
 	}
 
@@ -1009,7 +1017,23 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	for k, v := range ratios {
 		otherRatios[k] = v
 	}
+	applyAliConfiguredMultiplierFallbacks(info, otherRatios)
 	return otherRatios
+}
+
+func applyAliConfiguredMultiplierFallbacks(info *relaycommon.RelayInfo, ratios map[string]float64) {
+	if info == nil || !billing_setting.IsPerSecondBilling(info.OriginModelName) || len(ratios) == 0 {
+		return
+	}
+	configured := billing_setting.GetPerSecondMultipliers(info.OriginModelName)
+	if len(configured) == 0 {
+		return
+	}
+	for key := range ratios {
+		if value, ok := configured[key]; ok {
+			ratios[key] = value
+		}
+	}
 }
 
 // DoRequest delegates to common helper

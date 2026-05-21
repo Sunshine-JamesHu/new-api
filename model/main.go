@@ -294,6 +294,9 @@ func migrateDB() error {
 			return err
 		}
 	}
+	if err := migrateAliBailianChannelType(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -363,7 +366,23 @@ func migrateDBFast() error {
 			return err
 		}
 	}
+	if err := migrateAliBailianChannelType(); err != nil {
+		return err
+	}
 	common.SysLog("database migrated")
+	return nil
+}
+
+func migrateAliBailianChannelType() error {
+	const legacyAliBailianChannelType = 58
+	if legacyAliBailianChannelType == constant.ChannelTypeAliBailian {
+		return nil
+	}
+	if err := DB.Model(&Channel{}).
+		Where("type = ?", legacyAliBailianChannelType).
+		Update("type", constant.ChannelTypeAliBailian).Error; err != nil {
+		return fmt.Errorf("failed to migrate Ali Bailian channel type: %w", err)
+	}
 	return nil
 }
 

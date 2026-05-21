@@ -35,6 +35,7 @@ import {
   getSyncFieldLabel,
   isSelectableUpstreamValue,
   type ModelRow,
+  type RatioSyncValue,
   type ResolutionsMap,
 } from './upstream-ratio-sync-helpers'
 
@@ -46,7 +47,7 @@ export function useUpstreamRatioSyncColumns(
   onSelectValue: (
     model: string,
     ratioType: RatioType,
-    value: number | string,
+    value: RatioSyncValue,
     sourceName: string
   ) => void,
   onUnselectValue: (model: string, ratioType: RatioType) => void,
@@ -246,7 +247,7 @@ export function useUpstreamRatioSyncColumns(
                           onSelectValue(
                             row.original.model,
                             ratioType,
-                            upstreamVal as number | string,
+                            upstreamVal as RatioSyncValue,
                             upstreamName
                           ),
                         onUnselect: () =>
@@ -277,7 +278,7 @@ export function useUpstreamRatioSyncColumns(
 }
 
 type RenderUpstreamValueArgs = {
-  upstreamVal: number | string | 'same' | null | undefined
+  upstreamVal: RatioSyncValue | 'same' | null | undefined
   isConfident: boolean
   isSelected: boolean
   isDisabled: boolean
@@ -311,7 +312,10 @@ function renderUpstreamValue(args: RenderUpstreamValueArgs) {
     )
   }
 
-  const text = String(upstreamVal)
+  const text =
+    typeof upstreamVal === 'object'
+      ? JSON.stringify(upstreamVal)
+      : String(upstreamVal)
 
   return (
     <div className='flex min-w-0 items-center gap-2'>

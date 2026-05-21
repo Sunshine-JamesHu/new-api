@@ -166,6 +166,7 @@ export type ModelSettings = {
   ExposeRatioEnabled: boolean
   'billing_setting.billing_mode': string
   'billing_setting.billing_expr': string
+  'billing_setting.per_second_multipliers': string
   'tool_price_setting.prices': string
   TopupGroupRatio: string
   GroupRatio: string
@@ -209,6 +210,7 @@ export type BillingSettings = {
   ExposeRatioEnabled: boolean
   'billing_setting.billing_mode': string
   'billing_setting.billing_expr': string
+  'billing_setting.per_second_multipliers': string
   'tool_price_setting.prices': string
   TopupGroupRatio: string
   GroupRatio: string
@@ -350,10 +352,13 @@ export type RatioType =
   | 'model_price'
   | 'billing_mode'
   | 'billing_expr'
+  | 'per_second_multipliers'
+
+export type RatioSyncValue = number | string | Record<string, number>
 
 export type RatioDifference = {
-  current: number | string | null
-  upstreams: Record<string, number | string | 'same'>
+  current: RatioSyncValue | null
+  upstreams: Record<string, RatioSyncValue | 'same'>
   confidence: Record<string, boolean>
 }
 

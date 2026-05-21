@@ -30,6 +30,7 @@ import {
 import type {
   DifferencesMap,
   RatioType,
+  RatioSyncValue,
   UpstreamChannel,
   UpstreamConfig,
 } from '../types'
@@ -71,6 +72,7 @@ type UpstreamRatioSyncProps = {
     AudioCompletionRatio: string
     'billing_setting.billing_mode': string
     'billing_setting.billing_expr': string
+    'billing_setting.per_second_multipliers': string
   }
 }
 
@@ -90,7 +92,11 @@ function getDefaultEndpointForChannel(channel: UpstreamChannel): string {
 
 function getBillingCategory(ratioType: string): 'price' | 'ratio' | 'tiered' {
   if (ratioType === 'model_price') return 'price'
-  if (ratioType === 'billing_mode' || ratioType === 'billing_expr')
+  if (
+    ratioType === 'billing_mode' ||
+    ratioType === 'billing_expr' ||
+    ratioType === 'per_second_multipliers'
+  )
     return 'tiered'
   return 'ratio'
 }
@@ -99,6 +105,7 @@ function optionKeyBySyncField(ratioType: string): string {
   const explicit: Record<string, string> = {
     billing_mode: 'billing_setting.billing_mode',
     billing_expr: 'billing_setting.billing_expr',
+    per_second_multipliers: 'billing_setting.per_second_multipliers',
   }
   if (explicit[ratioType]) return explicit[ratioType]
   return ratioType
@@ -271,7 +278,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
     (
       model: string,
       ratioType: RatioType,
-      value: number | string,
+      value: RatioSyncValue,
       sourceName: string
     ) => {
       const modelDiffs = differences[model]
@@ -286,7 +293,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
           : (modelDiffs?.[preferredType]?.upstreams?.[sourceName] ?? value)
 
       const finalType = preferredType
-      const finalValue = preferredValue as number | string
+      const finalValue = preferredValue as RatioSyncValue
       const category = getBillingCategory(finalType)
 
       setResolutions((prev) => {
@@ -350,6 +357,9 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
       'billing_setting.billing_expr': parseJsonRecord<string>(
         modelRatios['billing_setting.billing_expr']
       ),
+      'billing_setting.per_second_multipliers': parseJsonRecord<
+        Record<string, number>
+      >(modelRatios['billing_setting.per_second_multipliers']),
     }
   }, [modelRatios])
 
@@ -375,7 +385,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
 
   const performSync = useCallback(
     async (currentRatios: ParsedRatios): Promise<boolean> => {
-      const finalRatios: Record<string, Record<string, number | string>> = {
+      const finalRatios: Record<string, Record<string, RatioSyncValue>> = {
         ModelRatio: { ...currentRatios.ModelRatio },
         CompletionRatio: { ...currentRatios.CompletionRatio },
         CacheRatio: { ...currentRatios.CacheRatio },
@@ -389,6 +399,9 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         },
         'billing_setting.billing_expr': {
           ...currentRatios['billing_setting.billing_expr'],
+        },
+        'billing_setting.per_second_multipliers': {
+          ...currentRatios['billing_setting.per_second_multipliers'],
         },
       }
 
@@ -438,11 +451,18 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
   const findSourceChannel = (
     model: string,
     ratioType: RatioType,
-    value: number | string
+    value: RatioSyncValue
   ): string => {
     const upMap = differences[model]?.[ratioType]?.upstreams
     if (!upMap) return 'Unknown'
-    const entry = Object.entries(upMap).find(([, v]) => v === value)
+    const valueKey =
+      typeof value === 'object' ? JSON.stringify(value) : String(value)
+    const entry = Object.entries(upMap).find(([, v]) => {
+      if (v === 'same') return false
+      const candidateKey =
+        typeof v === 'object' ? JSON.stringify(v) : String(v)
+      return candidateKey === valueKey
+    })
     return entry ? entry[0] : 'Unknown'
   }
 

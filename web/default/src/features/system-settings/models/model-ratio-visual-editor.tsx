@@ -77,6 +77,7 @@ type ModelRatioVisualEditorProps = {
   audioCompletionRatio: string
   billingMode: string
   billingExpr: string
+  perSecondMultipliers: string
   onChange: (field: string, value: string) => void
 }
 
@@ -93,6 +94,7 @@ type ModelRow = {
   billingMode?: string
   billingExpr?: string
   requestRuleExpr?: string
+  perSecondMultipliers?: Record<string, number>
   hasConflict: boolean
 }
 
@@ -217,6 +219,7 @@ export const ModelRatioVisualEditor = memo(
     audioCompletionRatio,
     billingMode,
     billingExpr,
+    perSecondMultipliers,
     onChange,
   }: ModelRatioVisualEditorProps) {
     const { t } = useTranslation()
@@ -318,6 +321,12 @@ export const ModelRatioVisualEditor = memo(
           context: 'billing expression',
         }
       )
+      const perSecondMultipliersMap = safeJsonParse<
+        Record<string, Record<string, number>>
+      >(perSecondMultipliers, {
+        fallback: {},
+        context: 'per-second multipliers',
+      })
 
       const modelNames = new Set([
         ...Object.keys(priceMap),
@@ -330,6 +339,7 @@ export const ModelRatioVisualEditor = memo(
         ...Object.keys(audioCompletionMap),
         ...Object.keys(billingModeMap),
         ...Object.keys(billingExprMap),
+        ...Object.keys(perSecondMultipliersMap),
       ])
 
       const modelData: ModelRow[] = Array.from(modelNames).map((name) => {
@@ -379,6 +389,7 @@ export const ModelRatioVisualEditor = memo(
             audioRatio: audio,
             audioCompletionRatio: audioCompletion,
             billingMode: 'per_second',
+            perSecondMultipliers: perSecondMultipliersMap[name],
             hasConflict: false,
           }
         }
@@ -418,6 +429,7 @@ export const ModelRatioVisualEditor = memo(
       audioCompletionRatio,
       billingMode,
       billingExpr,
+      perSecondMultipliers,
     ])
 
     const modeCounts = useMemo(
@@ -468,6 +480,7 @@ export const ModelRatioVisualEditor = memo(
                 : 'per-token',
           billingExpr: model.billingExpr,
           requestRuleExpr: model.requestRuleExpr,
+          perSecondMultipliers: model.perSecondMultipliers,
         })
         setEditorOpen(true)
         if (isMobile) setSheetOpen(true)
@@ -545,6 +558,9 @@ export const ModelRatioVisualEditor = memo(
           billingExpr,
           { fallback: {}, silent: true }
         )
+        const perSecondMultipliersMap = safeJsonParse<
+          Record<string, Record<string, number>>
+        >(perSecondMultipliers, { fallback: {}, silent: true })
 
         delete priceMap[name]
         delete ratioMap[name]
@@ -556,6 +572,7 @@ export const ModelRatioVisualEditor = memo(
         delete audioCompletionMap[name]
         delete billingModeMap[name]
         delete billingExprMap[name]
+        delete perSecondMultipliersMap[name]
 
         onChange('ModelPrice', JSON.stringify(priceMap, null, 2))
         onChange('ModelRatio', JSON.stringify(ratioMap, null, 2))
@@ -576,6 +593,10 @@ export const ModelRatioVisualEditor = memo(
           'billing_setting.billing_expr',
           JSON.stringify(billingExprMap, null, 2)
         )
+        onChange(
+          'billing_setting.per_second_multipliers',
+          JSON.stringify(perSecondMultipliersMap, null, 2)
+        )
       },
       [
         modelPrice,
@@ -588,6 +609,7 @@ export const ModelRatioVisualEditor = memo(
         audioCompletionRatio,
         billingMode,
         billingExpr,
+        perSecondMultipliers,
         onChange,
       ]
     )
@@ -780,6 +802,9 @@ export const ModelRatioVisualEditor = memo(
           billingExpr,
           { fallback: {}, silent: true }
         )
+        const perSecondMultipliersMap = safeJsonParse<
+          Record<string, Record<string, number>>
+        >(perSecondMultipliers, { fallback: {}, silent: true })
 
         const setIfPresent = (
           target: Record<string, number>,
@@ -802,6 +827,7 @@ export const ModelRatioVisualEditor = memo(
           delete audioCompletionMap[name]
           delete billingModeMap[name]
           delete billingExprMap[name]
+          delete perSecondMultipliersMap[name]
 
           if (data.billingMode === 'tiered_expr') {
             const combined = combineBillingExpr(
@@ -827,6 +853,12 @@ export const ModelRatioVisualEditor = memo(
           } else if (data.billingMode === 'per_second') {
             billingModeMap[name] = 'per_second'
             setIfPresent(priceMap, name, data.price)
+            if (
+              data.perSecondMultipliers &&
+              Object.keys(data.perSecondMultipliers).length > 0
+            ) {
+              perSecondMultipliersMap[name] = data.perSecondMultipliers
+            }
           } else if (data.price && data.price !== '') {
             setIfPresent(priceMap, name, data.price)
           } else {
@@ -859,6 +891,10 @@ export const ModelRatioVisualEditor = memo(
           'billing_setting.billing_expr',
           JSON.stringify(billingExprMap, null, 2)
         )
+        onChange(
+          'billing_setting.per_second_multipliers',
+          JSON.stringify(perSecondMultipliersMap, null, 2)
+        )
       },
       [
         modelPrice,
@@ -871,6 +907,7 @@ export const ModelRatioVisualEditor = memo(
         audioCompletionRatio,
         billingMode,
         billingExpr,
+        perSecondMultipliers,
         onChange,
       ]
     )
@@ -1081,6 +1118,7 @@ export const ModelRatioVisualEditor = memo(
       prevProps.audioCompletionRatio === nextProps.audioCompletionRatio &&
       prevProps.billingMode === nextProps.billingMode &&
       prevProps.billingExpr === nextProps.billingExpr &&
+      prevProps.perSecondMultipliers === nextProps.perSecondMultipliers &&
       prevProps.onChange === nextProps.onChange
     )
   }

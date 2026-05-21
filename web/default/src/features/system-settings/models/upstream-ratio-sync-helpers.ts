@@ -19,9 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
 import type { RatioType } from '../types'
 import { RATIO_TYPE_OPTIONS } from './constants'
 
+export type RatioSyncValue = number | string | Record<string, number>
+
 export type RatioDifferenceEntry = {
-  current: number | string | null
-  upstreams: Record<string, number | string | 'same'>
+  current: RatioSyncValue | null
+  upstreams: Record<string, RatioSyncValue | 'same'>
   confidence: Record<string, boolean>
 }
 
@@ -32,7 +34,7 @@ export type ModelRow = {
   billingConflict: boolean
 }
 
-export type ResolutionsMap = Record<string, Record<string, number | string>>
+export type ResolutionsMap = Record<string, Record<string, RatioSyncValue>>
 
 export const RATIO_SYNC_FIELDS: RatioType[] = [
   'model_ratio',
@@ -49,6 +51,7 @@ export const SYNC_FIELD_ORDER: RatioType[] = [
   'model_price',
   'billing_mode',
   'billing_expr',
+  'per_second_multipliers',
 ]
 
 export const NUMERIC_SYNC_FIELDS = new Set<string>([
@@ -96,7 +99,7 @@ export function getPreferredSyncField(
 }
 
 export function isSelectableUpstreamValue(
-  value: number | string | 'same' | null | undefined
+  value: RatioSyncValue | 'same' | null | undefined
 ): boolean {
   return value !== null && value !== undefined && value !== 'same'
 }

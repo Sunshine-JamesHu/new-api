@@ -39,6 +39,7 @@ import {
   formatRequestPrice,
   stripTrailingZeros,
   getFixedPriceUnit,
+  getPerSecondResolutionPricesFromMinGroup,
 } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
 
@@ -250,6 +251,36 @@ export function usePricingColumns(
               </span>
               <div className='text-muted-foreground/50 text-[10px]'>
                 / {tokenUnitLabel} tokens
+              </div>
+            </div>
+          )
+        }
+
+        if (model.billing_mode === 'per_second') {
+          const prices = getPerSecondResolutionPricesFromMinGroup(
+            model,
+            showRechargePrice,
+            priceRate,
+            usdExchangeRate
+          )
+
+          return (
+            <div className='min-w-[140px] space-y-0.5'>
+              {prices.map((item) => (
+                <div
+                  key={item.key}
+                  className='flex items-baseline justify-between gap-3'
+                >
+                  <span className='text-muted-foreground text-[11px]'>
+                    {item.label}
+                  </span>
+                  <span className='font-mono text-sm tabular-nums'>
+                    {stripTrailingZeros(item.formatted)}
+                  </span>
+                </div>
+              ))}
+              <div className='text-muted-foreground/50 text-right text-[10px]'>
+                / {t('second')}
               </div>
             </div>
           )
