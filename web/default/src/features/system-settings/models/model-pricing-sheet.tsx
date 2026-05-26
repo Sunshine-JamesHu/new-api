@@ -33,7 +33,6 @@ import {
 } from '@/components/ui/collapsible'
 import {
   Field,
-  FieldContent,
   FieldDescription,
   FieldGroup,
   FieldLabel,
@@ -62,9 +61,17 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  sideDrawerContentClassName,
+  sideDrawerFooterClassName,
+} from '@/components/drawer-layout'
 import { combineBillingExpr } from '@/features/pricing/lib/billing-expr'
+import {
+  SettingsControlGroup,
+  SettingsSwitchField,
+} from '../components/settings-form-layout'
+import { formatPricingNumber } from './pricing-format'
 import { TieredPricingEditor } from './tiered-pricing-editor'
 
 const createModelPricingSchema = (t: (key: string) => string) =>
@@ -223,12 +230,6 @@ function toNumberOrNull(value: unknown): number | null {
   return Number.isFinite(num) ? num : null
 }
 
-function formatNumber(value: unknown): string {
-  const num = toNumberOrNull(value)
-  if (num === null) return ''
-  return Number.parseFloat(num.toFixed(12)).toString()
-}
-
 function createInitialPerSecondPrices(
   data?: ModelRatioData | null
 ): Record<string, string> {
@@ -238,7 +239,7 @@ function createInitialPerSecondPrices(
     PER_SECOND_RESOLUTION_ROWS.map(({ key }) => {
       const multiplier = toNumberOrNull(multipliers[key])
       if (basePrice === null || multiplier === null) return [key, '']
-      return [key, formatNumber(basePrice * multiplier)]
+      return [key, formatPricingNumber(basePrice * multiplier)]
     })
   )
 }
@@ -253,7 +254,10 @@ function derivePerSecondMultipliers(
     Object.entries(prices)
       .map(([key, value]) => [key, toNumberOrNull(value)] as const)
       .filter(([, value]) => value !== null && value > 0)
-      .map(([key, value]) => [key, Number(formatNumber(value! / base))])
+      .map(([key, value]) => [
+        key,
+        Number(formatPricingNumber(value! / base)),
+      ])
   )
   if (multipliers['resolution-720P'] === undefined) {
     multipliers['resolution-720P'] = 1
@@ -264,7 +268,7 @@ function derivePerSecondMultipliers(
 function ratioToBasePrice(ratio: unknown): string {
   const num = toNumberOrNull(ratio)
   if (num === null) return ''
-  return formatNumber(num * 2)
+  return formatPricingNumber(num * 2)
 }
 
 function deriveLanePrice(
@@ -275,7 +279,7 @@ function deriveLanePrice(
   const ratioNumber = toNumberOrNull(ratio)
   const denominatorNumber = toNumberOrNull(denominator)
   if (ratioNumber === null || denominatorNumber === null) return fallback
-  return formatNumber(ratioNumber * denominatorNumber)
+  return formatPricingNumber(ratioNumber * denominatorNumber)
 }
 
 function createInitialLaneState(data?: ModelRatioData | null) {
@@ -449,7 +453,10 @@ export function ModelPricingSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side='right' className='w-full gap-0 p-0 sm:max-w-2xl'>
+      <SheetContent
+        side='right'
+        className={sideDrawerContentClassName('sm:max-w-2xl')}
+      >
         <SheetHeader className='sr-only'>
           <SheetTitle>{title}</SheetTitle>
           <SheetDescription>{description}</SheetDescription>
@@ -577,12 +584,12 @@ export function ModelPricingEditorPanel({
     if (lane === 'audioOutput') {
       const audioInputPrice = toNumberOrNull(nextLanePrices.audioInput)
       if (audioInputPrice === null || audioInputPrice === 0) return ''
-      return formatNumber(priceNumber / audioInputPrice)
+      return formatPricingNumber(priceNumber / audioInputPrice)
     }
 
     const inputPrice = toNumberOrNull(nextPromptPrice)
     if (inputPrice === null || inputPrice === 0) return ''
-    return formatNumber(priceNumber / inputPrice)
+    return formatPricingNumber(priceNumber / inputPrice)
   }
 
   const syncLaneRatios = (
@@ -593,7 +600,7 @@ export function ModelPricingEditorPanel({
     const inputPrice = toNumberOrNull(nextPromptPrice)
     setFormValue(
       'ratio',
-      inputPrice !== null ? formatNumber(inputPrice / 2) : ''
+      inputPrice !== null ? formatPricingNumber(inputPrice / 2) : ''
     )
 
     laneConfigs.forEach(({ key }) => {
@@ -815,7 +822,7 @@ export function ModelPricingEditorPanel({
   return (
     <div
       className={cn(
-        'bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border',
+        'bg-background flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border',
         className
       )}
     >
@@ -1101,7 +1108,11 @@ export function ModelPricingEditorPanel({
             </FieldGroup>
           </div>
 
-          <SheetFooter className='bg-background/95 border-t sm:flex-row sm:items-center sm:justify-between'>
+          <SheetFooter
+            className={sideDrawerFooterClassName(
+              'grid-cols-1 sm:items-center sm:justify-between'
+            )}
+          >
             <div className='text-muted-foreground text-xs'>
               {selectedTargetCount > 0
                 ? t('{{count}} selected targets available for bulk copy.', {
@@ -1159,36 +1170,29 @@ function PriceLane(props: {
   const effectiveDisabled = props.disabled || !props.enabled
 
   return (
-    <Field
-      className={cn(
-        'rounded-lg border p-3',
-        effectiveDisabled && 'bg-muted/35'
-      )}
+    <SettingsControlGroup
+      className={cn('space-y-3', effectiveDisabled && 'opacity-75')}
       data-disabled={effectiveDisabled || undefined}
     >
-      <div className='flex items-start justify-between gap-3'>
-        <FieldContent>
-          <FieldTitle>{props.title}</FieldTitle>
-          <FieldDescription>{props.description}</FieldDescription>
-        </FieldContent>
-        <Switch
-          checked={props.enabled}
-          disabled={props.disabled}
-          onCheckedChange={props.onEnabledChange}
-          aria-label={props.title}
-        />
-      </div>
+      <SettingsSwitchField
+        checked={props.enabled}
+        disabled={props.disabled}
+        onCheckedChange={props.onEnabledChange}
+        label={props.title}
+        description={props.description}
+        aria-label={props.title}
+      />
       <PriceInput
         value={props.value}
         placeholder={props.placeholder}
         disabled={effectiveDisabled}
         onChange={props.onChange}
       />
-      <FieldDescription>
+      <p className='text-muted-foreground text-xs'>
         {props.enabled
           ? t('USD price per 1M tokens.')
           : t('Disabled lanes are omitted on save.')}
-      </FieldDescription>
-    </Field>
+      </p>
+    </SettingsControlGroup>
   )
 }
