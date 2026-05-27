@@ -15,7 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/lingyiwanwu"
 	"github.com/QuantumNous/new-api/relay/channel/minimax"
 	"github.com/QuantumNous/new-api/relay/channel/moonshot"
-	taskali "github.com/QuantumNous/new-api/relay/channel/task/ali"
+	"github.com/QuantumNous/new-api/relay/channel/task/happyhorse"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
@@ -89,12 +89,12 @@ func init() {
 			OwnedBy: "midjourney",
 		})
 	}
-	for _, modelName := range taskali.ModelListForChannelType(constant.ChannelTypeAliBailian) {
+	for _, modelName := range happyhorse.ModelList {
 		openAIModels = append(openAIModels, dto.OpenAIModels{
 			Id:      modelName,
 			Object:  "model",
 			Created: 1626777600,
-			OwnedBy: taskali.BailianMediaChannelName,
+			OwnedBy: happyhorse.ChannelName,
 		})
 	}
 	openAIModelsMap = make(map[string]dto.OpenAIModels)
@@ -114,7 +114,7 @@ func init() {
 		adaptor.Init(meta)
 		channelId2Models[i] = adaptor.GetModelList()
 	}
-	channelId2Models[constant.ChannelTypeAliBailian] = taskali.ModelListForChannelType(constant.ChannelTypeAliBailian)
+	channelId2Models[constant.ChannelTypeHappyHorse] = append([]string{}, happyhorse.ModelList...)
 	openAIModels = lo.UniqBy(openAIModels, func(m dto.OpenAIModels) string {
 		return m.Id
 	})

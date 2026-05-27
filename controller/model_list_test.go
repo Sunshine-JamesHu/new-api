@@ -154,9 +154,7 @@ func pricingByModelName(pricings []model.Pricing) map[string]model.Pricing {
 	return byName
 }
 
-func TestChannelModelsIncludeAliBailianVideoTaskModels(t *testing.T) {
-	require.Contains(t, openAIModelsMap, "kling/kling-v3-video-generation")
-	require.Contains(t, openAIModelsMap, "kling/kling-v3-omni-video-generation")
+func TestChannelModelsIncludeHappyHorseTaskModels(t *testing.T) {
 	require.Contains(t, openAIModelsMap, "happyhorse-1.0-t2v")
 
 	aliModels := channelId2Models[constant.ChannelTypeAli]
@@ -165,17 +163,16 @@ func TestChannelModelsIncludeAliBailianVideoTaskModels(t *testing.T) {
 	require.NotContains(t, aliModels, "happyhorse-1.0-t2v")
 	require.NotContains(t, aliModels, "happyhorse-1.0-video-edit")
 
-	aliBailianModels := channelId2Models[constant.ChannelTypeAliBailian]
-	require.Contains(t, aliBailianModels, "kling/kling-v3-video-generation")
-	require.Contains(t, aliBailianModels, "kling/kling-v3-omni-video-generation")
-	require.Contains(t, aliBailianModels, "happyhorse-1.0-t2v")
-	require.Contains(t, aliBailianModels, "happyhorse-1.0-video-edit")
-	require.NotContains(t, aliBailianModels, "qwen-plus")
+	happyHorseModels := channelId2Models[constant.ChannelTypeHappyHorse]
+	require.Contains(t, happyHorseModels, "happyhorse-1.0-t2v")
+	require.Contains(t, happyHorseModels, "happyhorse-1.0-video-edit")
+	require.NotContains(t, happyHorseModels, "kling/kling-v3-video-generation")
+	require.NotContains(t, happyHorseModels, "qwen-plus")
 
 	require.Equal(
 		t,
 		[]constant.EndpointType{constant.EndpointTypeOpenAIVideo},
-		common.GetEndpointTypesByChannelType(constant.ChannelTypeAliBailian, "kling/kling-v3-video-generation"),
+		common.GetEndpointTypesByChannelType(constant.ChannelTypeHappyHorse, "happyhorse-1.0-t2v"),
 	)
 	endpointInfo, ok := common.GetDefaultEndpointInfo(constant.EndpointTypeOpenAIVideo)
 	require.True(t, ok)
@@ -252,6 +249,7 @@ func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
 		"zz-token-tiered-visible-model":      true,

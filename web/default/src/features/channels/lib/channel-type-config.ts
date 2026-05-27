@@ -83,16 +83,16 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'claude-3-opus,claude-3-sonnet,claude-3-haiku',
     },
   },
-  999: {
-    id: 999,
-    name: CHANNEL_TYPES[999],
+  998: {
+    id: 998,
+    name: CHANNEL_TYPES[998],
     icon: 'qwen',
     defaultBaseUrl: 'https://dashscope.aliyuncs.com',
     hints: {
       baseUrl: 'Default: https://dashscope.aliyuncs.com',
       key: 'DashScope API Key',
       models:
-        'kling/kling-v3-video-generation,kling/kling-v3-omni-video-generation,happyhorse-1.0-t2v',
+        'happyhorse-1.0-t2v,happyhorse-1.0-i2v,happyhorse-1.0-r2v,happyhorse-1.0-video-edit',
     },
   },
   24: {

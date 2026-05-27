@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
@@ -135,33 +134,33 @@ type AliUsage struct {
 }
 
 type aliVideoMetadataV2 struct {
-	Input          *aliVideoInputV2       `json:"input,omitempty"`
-	Parameters     *aliVideoParametersV2  `json:"parameters,omitempty"`
-	Model          string          `json:"model,omitempty"`
-	AudioURL       string          `json:"audio_url,omitempty"`
-	ImgURL         string          `json:"img_url,omitempty"`
-	ImageURL       string          `json:"image_url,omitempty"`
-	VideoURL       string          `json:"video_url,omitempty"`
-	FirstFrameURL  string          `json:"first_frame_url,omitempty"`
-	LastFrameURL   string          `json:"last_frame_url,omitempty"`
-	NegativePrompt string          `json:"negative_prompt,omitempty"`
-	Template       string          `json:"template,omitempty"`
-	Media          []aliVideoMedia `json:"media,omitempty"`
-	MultiPrompt    any             `json:"multi_prompt,omitempty"`
-	ElementList    any             `json:"element_list,omitempty"`
-	ReferenceVoice any             `json:"reference_voice,omitempty"`
-	Resolution     string          `json:"resolution,omitempty"`
-	Size           string          `json:"size,omitempty"`
-	Duration       any             `json:"duration,omitempty"`
-	PromptExtend   *bool           `json:"prompt_extend,omitempty"`
-	Watermark      *bool           `json:"watermark,omitempty"`
-	Audio          *bool           `json:"audio,omitempty"`
-	Seed           int             `json:"seed,omitempty"`
-	Ratio          string          `json:"ratio,omitempty"`
-	AspectRatio    string          `json:"aspect_ratio,omitempty"`
-	Mode           string          `json:"mode,omitempty"`
-	ShotType       string          `json:"shot_type,omitempty"`
-	AudioSetting   any             `json:"audio_setting,omitempty"`
+	Input          *aliVideoInputV2      `json:"input,omitempty"`
+	Parameters     *aliVideoParametersV2 `json:"parameters,omitempty"`
+	Model          string                `json:"model,omitempty"`
+	AudioURL       string                `json:"audio_url,omitempty"`
+	ImgURL         string                `json:"img_url,omitempty"`
+	ImageURL       string                `json:"image_url,omitempty"`
+	VideoURL       string                `json:"video_url,omitempty"`
+	FirstFrameURL  string                `json:"first_frame_url,omitempty"`
+	LastFrameURL   string                `json:"last_frame_url,omitempty"`
+	NegativePrompt string                `json:"negative_prompt,omitempty"`
+	Template       string                `json:"template,omitempty"`
+	Media          []aliVideoMedia       `json:"media,omitempty"`
+	MultiPrompt    any                   `json:"multi_prompt,omitempty"`
+	ElementList    any                   `json:"element_list,omitempty"`
+	ReferenceVoice any                   `json:"reference_voice,omitempty"`
+	Resolution     string                `json:"resolution,omitempty"`
+	Size           string                `json:"size,omitempty"`
+	Duration       any                   `json:"duration,omitempty"`
+	PromptExtend   *bool                 `json:"prompt_extend,omitempty"`
+	Watermark      *bool                 `json:"watermark,omitempty"`
+	Audio          *bool                 `json:"audio,omitempty"`
+	Seed           int                   `json:"seed,omitempty"`
+	Ratio          string                `json:"ratio,omitempty"`
+	AspectRatio    string                `json:"aspect_ratio,omitempty"`
+	Mode           string                `json:"mode,omitempty"`
+	ShotType       string                `json:"shot_type,omitempty"`
+	AudioSetting   any                   `json:"audio_setting,omitempty"`
 }
 
 type AliMetadata struct {
@@ -214,9 +213,6 @@ func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info
 	req.Header.Set("Authorization", "Bearer "+a.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-DashScope-Async", "enable") // 阿里异步任务必须设置
-	if a.ChannelType == constant.ChannelTypeAliBailian {
-		req.Header.Set("X-DashScope-OssResourceResolve", "enable")
-	}
 	return nil
 }
 
@@ -226,12 +222,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		return nil, errors.Wrap(err, "get_task_request_failed")
 	}
 
-	var aliReq any
-	if a.ChannelType == constant.ChannelTypeAliBailian {
-		aliReq, err = a.convertToAliRequestV2(info, taskReq)
-	} else {
-		aliReq, err = a.convertToAliRequest(info, taskReq)
-	}
+	aliReq, err := a.convertToAliRequest(info, taskReq)
 	if err != nil {
 		return nil, errors.Wrap(err, "convert_to_ali_request_failed")
 	}
@@ -318,22 +309,6 @@ func ProcessAliOtherRatios(aliReq *aliVideoRequestV2) (map[string]float64, error
 		"wan2.2-s2v": {
 			"480P": 1,
 			"720P": 0.9 / 0.5,
-		},
-		"happyhorse-1.0-t2v": {
-			"720P":  1,
-			"1080P": 1.6 / 0.9,
-		},
-		"happyhorse-1.0-i2v": {
-			"720P":  1,
-			"1080P": 1.6 / 0.9,
-		},
-		"happyhorse-1.0-r2v": {
-			"720P":  1,
-			"1080P": 1.6 / 0.9,
-		},
-		"happyhorse-1.0-video-edit": {
-			"720P":  1,
-			"1080P": 1.6 / 0.9,
 		},
 		"kling/kling-v3-video-generation": {
 			"720P":  1,
@@ -979,20 +954,6 @@ func applyAliRequestMedia(modelName string, urls []string, aliReq *aliVideoReque
 		return
 	}
 	switch {
-	case modelName == "happyhorse-1.0-i2v":
-		aliReq.Input.Media = append(aliReq.Input.Media, newAliVideoMedia("first_frame", urls[0]))
-	case modelName == "happyhorse-1.0-r2v":
-		for _, url := range urls {
-			aliReq.Input.Media = append(aliReq.Input.Media, newAliVideoMedia("reference_image", url))
-		}
-	case modelName == "happyhorse-1.0-video-edit":
-		for _, url := range urls {
-			mediaType := "reference_image"
-			if aliLooksLikeVideoURL(url) {
-				mediaType = "video"
-			}
-			aliReq.Input.Media = append(aliReq.Input.Media, newAliVideoMedia(mediaType, url))
-		}
 	case isAliKlingModel(modelName):
 		aliReq.Input.Media = append(aliReq.Input.Media, newAliVideoMedia("first_frame", urls[0]))
 		if len(urls) > 1 {
@@ -1069,7 +1030,7 @@ func aliVideoTypeForURL(modelName, key string) string {
 }
 
 func isAliNewFormatModel(modelName string) bool {
-	return strings.HasPrefix(modelName, "happyhorse-1.0") || strings.HasPrefix(modelName, "kling/")
+	return strings.HasPrefix(modelName, "kling/")
 }
 
 func isAliKlingModel(modelName string) bool {
@@ -1077,7 +1038,7 @@ func isAliKlingModel(modelName string) bool {
 }
 
 func defaultAliResolution(modelName string) string {
-	if strings.HasPrefix(modelName, "happyhorse-1.0") || strings.HasPrefix(modelName, "wan2.7") {
+	if strings.HasPrefix(modelName, "wan2.7") {
 		return "1080P"
 	}
 	if strings.HasPrefix(modelName, "kling/") || strings.HasPrefix(modelName, "wan2.6") || strings.HasPrefix(modelName, "wan2.5") {
@@ -1192,26 +1153,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 		return nil
 	}
 
-	if a.ChannelType != constant.ChannelTypeAliBailian {
-		aliReq, err := a.convertToAliRequest(info, taskReq)
-		if err != nil {
-			return nil
-		}
-		otherRatios := map[string]float64{
-			"seconds": float64(aliReq.Parameters.Duration),
-		}
-		ratios, err := processLegacyAliOtherRatios(aliReq)
-		if err != nil {
-			return otherRatios
-		}
-		for k, v := range ratios {
-			otherRatios[k] = v
-		}
-		applyAliConfiguredMultiplierFallbacks(info, otherRatios)
-		return otherRatios
-	}
-
-	aliReq, err := a.convertToAliRequestV2(info, taskReq)
+	aliReq, err := a.convertToAliRequest(info, taskReq)
 	if err != nil {
 		return nil
 	}
@@ -1219,7 +1161,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	otherRatios := map[string]float64{
 		"seconds": float64(aliReq.Parameters.Duration),
 	}
-	ratios, err := ProcessAliOtherRatios(aliReq)
+	ratios, err := processLegacyAliOtherRatios(aliReq)
 	if err != nil {
 		return otherRatios
 	}
@@ -1322,9 +1264,6 @@ func (a *TaskAdaptor) GetModelList() []string {
 }
 
 func (a *TaskAdaptor) GetChannelName() string {
-	if a.ChannelType == constant.ChannelTypeAliBailian {
-		return BailianMediaChannelName
-	}
 	return ChannelName
 }
 

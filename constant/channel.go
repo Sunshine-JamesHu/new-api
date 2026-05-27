@@ -55,7 +55,7 @@ const (
 	ChannelTypeSora           = 55
 	ChannelTypeReplicate      = 56
 	ChannelTypeCodex          = 57
-	ChannelTypeAliBailian     = 999
+	ChannelTypeHappyHorse     = 998
 	ChannelTypeDummy          = 1000 // this one is only for count, do not add any channel after this
 
 )
@@ -128,7 +128,7 @@ func init() {
 		copy(baseURLs, ChannelBaseURLs)
 		ChannelBaseURLs = baseURLs
 	}
-	ChannelBaseURLs[ChannelTypeAliBailian] = "https://dashscope.aliyuncs.com"
+	ChannelBaseURLs[ChannelTypeHappyHorse] = "https://dashscope.aliyuncs.com"
 }
 
 var ChannelTypeNames = map[int]string{
@@ -186,7 +186,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeSora:           "Sora",
 	ChannelTypeReplicate:      "Replicate",
 	ChannelTypeCodex:          "Codex",
-	ChannelTypeAliBailian:     "AliBailian",
+	ChannelTypeHappyHorse:     "HappyHorse",
 }
 
 func GetChannelTypeName(channelType int) string {

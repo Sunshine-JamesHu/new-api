@@ -294,7 +294,7 @@ func migrateDB() error {
 			return err
 		}
 	}
-	if err := migrateAliBailianChannelType(); err != nil {
+	if err := migrateHappyHorseChannelType(); err != nil {
 		return err
 	}
 	return nil
@@ -366,22 +366,23 @@ func migrateDBFast() error {
 			return err
 		}
 	}
-	if err := migrateAliBailianChannelType(); err != nil {
+	if err := migrateHappyHorseChannelType(); err != nil {
 		return err
 	}
 	common.SysLog("database migrated")
 	return nil
 }
 
-func migrateAliBailianChannelType() error {
-	const legacyAliBailianChannelType = 58
-	if legacyAliBailianChannelType == constant.ChannelTypeAliBailian {
-		return nil
-	}
-	if err := DB.Model(&Channel{}).
-		Where("type = ?", legacyAliBailianChannelType).
-		Update("type", constant.ChannelTypeAliBailian).Error; err != nil {
-		return fmt.Errorf("failed to migrate Ali Bailian channel type: %w", err)
+func migrateHappyHorseChannelType() error {
+	for _, legacyType := range []int{58, 999} {
+		if legacyType == constant.ChannelTypeHappyHorse {
+			continue
+		}
+		if err := DB.Model(&Channel{}).
+			Where("type = ?", legacyType).
+			Update("type", constant.ChannelTypeHappyHorse).Error; err != nil {
+			return fmt.Errorf("failed to migrate HappyHorse channel type: %w", err)
+		}
 	}
 	return nil
 }
