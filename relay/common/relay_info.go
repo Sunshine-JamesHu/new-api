@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/tidwall/gjson"
 )
 
 type ThinkingContentInfo struct {
@@ -152,6 +154,13 @@ type RelayInfo struct {
 	RuntimeHeadersOverride                map[string]interface{}
 	UseRuntimeHeadersOverride             bool
 	ParamOverrideAudit                    []string
+
+	// UpstreamRequestBodySize is the byte size of the marshaled upstream request
+	// body. It is set when the body is wrapped in a BodyStorage (see
+	// relay/common/outbound_body.go), so that DoApiRequest can populate
+	// http.Request.ContentLength manually (net/http only auto-detects it for
+	// *bytes.Reader/Buffer/strings.Reader). 0 means "let net/http decide".
+	UpstreamRequestBodySize int64
 
 	PriceData types.PriceData
 
@@ -683,6 +692,8 @@ type TaskSubmitReq struct {
 	Duration       int                    `json:"duration,omitempty"`
 	Seconds        string                 `json:"seconds,omitempty"`
 	InputReference string                 `json:"input_reference,omitempty"`
+	Input          map[string]interface{} `json:"input,omitempty"`
+	Parameters     map[string]interface{} `json:"parameters,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
 
@@ -697,8 +708,10 @@ func (t *TaskSubmitReq) HasImage() bool {
 func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 	type Alias TaskSubmitReq
 	aux := &struct {
-		Metadata json.RawMessage `json:"metadata,omitempty"`
-		Duration json.RawMessage `json:"duration,omitempty"`
+		Duration json.RawMessage `json:"duration"`
+		Seconds  json.RawMessage `json:"seconds"`
+		Input    json.RawMessage `json:"input"`
+		Metadata json.RawMessage `json:"metadata"`
 		*Alias
 	}{
 		Alias: (*Alias)(t),
@@ -713,11 +726,35 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 		if err := common.Unmarshal(aux.Duration, &durationInt); err == nil {
 			t.Duration = durationInt
 		} else {
-			var durationStr string
-			if err := common.Unmarshal(aux.Duration, &durationStr); err == nil && durationStr != "" {
-				if v, err := strconv.Atoi(durationStr); err == nil {
-					t.Duration = v
+			var durationFloat float64
+			if err := common.Unmarshal(aux.Duration, &durationFloat); err == nil {
+				t.Duration = int(math.Ceil(durationFloat))
+			} else {
+				var durationStr string
+				if err := common.Unmarshal(aux.Duration, &durationStr); err == nil && durationStr != "" {
+					if v, err := strconv.ParseFloat(durationStr, 64); err == nil {
+						t.Duration = int(math.Ceil(v))
+					}
 				}
+			}
+		}
+	}
+
+	if len(aux.Seconds) > 0 {
+		var secondsStr string
+		if err := common.Unmarshal(aux.Seconds, &secondsStr); err == nil {
+			t.Seconds = secondsStr
+		} else {
+			t.Seconds = common.JsonRawMessageToString(aux.Seconds)
+		}
+	}
+
+	if len(aux.Input) > 0 {
+		var inputObj map[string]interface{}
+		if err := common.Unmarshal(aux.Input, &inputObj); err == nil {
+			t.Input = inputObj
+			if prompt, ok := inputObj["prompt"].(string); ok && t.Prompt == "" {
+				t.Prompt = prompt
 			}
 		}
 	}
@@ -785,6 +822,9 @@ func RemoveDisabledFields(jsonData []byte, channelOtherSettings dto.ChannelOther
 	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || channelPassThroughEnabled {
 		return jsonData, nil
 	}
+	if !hasRemovableDisabledField(jsonData, channelOtherSettings) {
+		return jsonData, nil
+	}
 
 	var data map[string]interface{}
 	if err := common.Unmarshal(jsonData, &data); err != nil {
@@ -849,6 +889,25 @@ func RemoveDisabledFields(jsonData []byte, channelOtherSettings dto.ChannelOther
 		return jsonData, nil
 	}
 	return jsonDataAfter, nil
+}
+
+func hasRemovableDisabledField(jsonData []byte, channelOtherSettings dto.ChannelOtherSettings) bool {
+	values := gjson.GetManyBytes(
+		jsonData,
+		"service_tier",
+		"inference_geo",
+		"speed",
+		"store",
+		"safety_identifier",
+		"stream_options.include_obfuscation",
+	)
+
+	return (!channelOtherSettings.AllowServiceTier && values[0].Exists()) ||
+		(!channelOtherSettings.AllowInferenceGeo && values[1].Exists()) ||
+		(!channelOtherSettings.AllowSpeed && values[2].Exists()) ||
+		(channelOtherSettings.DisableStore && values[3].Exists()) ||
+		(!channelOtherSettings.AllowSafetyIdentifier && values[4].Exists()) ||
+		(!channelOtherSettings.AllowIncludeObfuscation && values[5].Exists())
 }
 
 // RemoveGeminiDisabledFields removes disabled fields from Gemini request JSON data

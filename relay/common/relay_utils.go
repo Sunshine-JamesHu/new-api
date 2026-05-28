@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -95,8 +96,17 @@ func validateMultipartTaskRequest(c *gin.Context, info *RelayInfo, action string
 	}
 
 	if durationStr := formData.Get("seconds"); durationStr != "" {
-		if duration, err := strconv.Atoi(durationStr); err == nil {
-			req.Duration = duration
+		req.Seconds = durationStr
+		if duration, err := strconv.ParseFloat(durationStr, 64); err == nil {
+			req.Duration = int(math.Ceil(duration))
+		}
+	}
+	if durationStr := formData.Get("duration"); durationStr != "" {
+		if req.Seconds == "" {
+			req.Seconds = durationStr
+		}
+		if duration, err := strconv.ParseFloat(durationStr, 64); err == nil {
+			req.Duration = int(math.Ceil(duration))
 		}
 	}
 
@@ -131,9 +141,18 @@ func ValidateMultipartDirect(c *gin.Context, info *RelayInfo) *dto.TaskError {
 	}
 
 	prompt = req.Prompt
+	if prompt == "" && req.Input != nil {
+		if inputPrompt, ok := req.Input["prompt"].(string); ok {
+			prompt = inputPrompt
+		}
+	}
 	model = req.Model
 	size = req.Size
-	seconds, _ = strconv.Atoi(req.Seconds)
+	if req.Seconds != "" {
+		if parsedSeconds, err := strconv.ParseFloat(req.Seconds, 64); err == nil {
+			seconds = int(math.Ceil(parsedSeconds))
+		}
+	}
 	if seconds == 0 {
 		seconds = req.Duration
 	}
@@ -189,6 +208,7 @@ func isKnownTaskField(field string) bool {
 		"image":           true,
 		"images":          true,
 		"size":            true,
+		"seconds":         true,
 		"duration":        true,
 		"input_reference": true, // Sora 特有字段
 	}
@@ -204,6 +224,8 @@ func ValidateBasicTaskRequest(c *gin.Context, info *RelayInfo, action string) *d
 		if err != nil {
 			return createTaskError(err, "invalid_multipart_form", http.StatusBadRequest, true)
 		}
+		storeTaskRequest(c, info, action, req)
+		return nil
 	}
 	// 为了metadata字段的兼容性，统一UnmarshalBodyReusable
 	if err := common.UnmarshalBodyReusable(c, &req); err != nil {

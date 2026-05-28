@@ -231,6 +231,14 @@ export const getModelCategories = (() => {
         icon: <Qwen.Color />,
         filter: (model) => model.model_name.toLowerCase().includes('qwen'),
       },
+      happyhorse: {
+        label: t('HappyHorse'),
+        icon: <Qwen.Color />,
+        filter: (model) => {
+          const name = model.model_name.toLowerCase();
+          return name.startsWith('happyhorse-');
+        },
+      },
       deepseek: {
         label: 'DeepSeek',
         icon: <DeepSeek.Color />,
@@ -358,6 +366,7 @@ export function getChannelIcon(channelType) {
     case 46: // 百度文心千帆V2
       return <Wenxin.Color size={iconSize} />;
     case 17: // 阿里通义千问
+    case 998: // HappyHorse
       return <Qwen.Color size={iconSize} />;
     case 18: // 讯飞星火认知
       return <Spark.Color size={iconSize} />;

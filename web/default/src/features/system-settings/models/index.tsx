@@ -21,6 +21,7 @@ import type { ModelSettings } from '../types'
 import {
   MODELS_DEFAULT_SECTION,
   getModelsSectionContent,
+  getModelsSectionMeta,
 } from './section-registry.tsx'
 
 const defaultModelSettings: ModelSettings = {
@@ -53,6 +54,7 @@ const defaultModelSettings: ModelSettings = {
   ExposeRatioEnabled: false,
   'billing_setting.billing_mode': '{}',
   'billing_setting.billing_expr': '{}',
+  'billing_setting.per_second_multipliers': '{}',
   'tool_price_setting.prices': '{}',
   TopupGroupRatio: '',
   GroupRatio: '',
@@ -77,6 +79,7 @@ export function ModelSettings() {
       defaultSettings={defaultModelSettings}
       defaultSection={MODELS_DEFAULT_SECTION}
       getSectionContent={getModelsSectionContent}
+      getSectionMeta={getModelsSectionMeta}
     />
   )
 }

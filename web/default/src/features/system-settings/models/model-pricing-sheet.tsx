@@ -33,7 +33,6 @@ import {
 } from '@/components/ui/collapsible'
 import {
   Field,
-  FieldContent,
   FieldDescription,
   FieldGroup,
   FieldLabel,
@@ -62,9 +61,17 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  sideDrawerContentClassName,
+  sideDrawerFooterClassName,
+} from '@/components/drawer-layout'
 import { combineBillingExpr } from '@/features/pricing/lib/billing-expr'
+import {
+  SettingsControlGroup,
+  SettingsSwitchField,
+} from '../components/settings-form-layout'
+import { formatPricingNumber } from './pricing-format'
 import { TieredPricingEditor } from './tiered-pricing-editor'
 
 const createModelPricingSchema = (t: (key: string) => string) =>
@@ -84,7 +91,8 @@ type ModelPricingFormValues = z.infer<
   ReturnType<typeof createModelPricingSchema>
 >
 
-type PricingMode = 'per-token' | 'per-request' | 'tiered_expr'
+type PricingMode = 'per-token' | 'per-request' | 'per_second' | 'tiered_expr'
+type PerSecondMultipliers = Record<string, number>
 type LaneKey =
   | 'completion'
   | 'cache'
@@ -106,6 +114,7 @@ export type ModelRatioData = {
   billingMode?: PricingMode
   billingExpr?: string
   requestRuleExpr?: string
+  perSecondMultipliers?: PerSecondMultipliers
 }
 
 type ModelPricingSheetProps = {
@@ -150,6 +159,11 @@ const EMPTY_LANE_ENABLED: Record<LaneKey, boolean> = {
   audioInput: false,
   audioOutput: false,
 }
+
+const PER_SECOND_RESOLUTION_ROWS = [
+  { key: 'resolution-720P', label: '720P' },
+  { key: 'resolution-1080P', label: '1080P' },
+] as const
 
 const ratioFieldByLane: Record<LaneKey, keyof ModelPricingFormValues> = {
   completion: 'completionRatio',
@@ -216,16 +230,45 @@ function toNumberOrNull(value: unknown): number | null {
   return Number.isFinite(num) ? num : null
 }
 
-function formatNumber(value: unknown): string {
-  const num = toNumberOrNull(value)
-  if (num === null) return ''
-  return Number.parseFloat(num.toFixed(12)).toString()
+function createInitialPerSecondPrices(
+  data?: ModelRatioData | null
+): Record<string, string> {
+  const basePrice = toNumberOrNull(data?.price)
+  const multipliers = data?.perSecondMultipliers || {}
+  return Object.fromEntries(
+    PER_SECOND_RESOLUTION_ROWS.map(({ key }) => {
+      const multiplier = toNumberOrNull(multipliers[key])
+      if (basePrice === null || multiplier === null) return [key, '']
+      return [key, formatPricingNumber(basePrice * multiplier)]
+    })
+  )
+}
+
+function derivePerSecondMultipliers(
+  basePrice: string,
+  prices: Record<string, string>
+): PerSecondMultipliers {
+  const base = toNumberOrNull(basePrice)
+  if (base === null || base <= 0) return {}
+  const multipliers = Object.fromEntries(
+    Object.entries(prices)
+      .map(([key, value]) => [key, toNumberOrNull(value)] as const)
+      .filter(([, value]) => value !== null && value > 0)
+      .map(([key, value]) => [
+        key,
+        Number(formatPricingNumber(value! / base)),
+      ])
+  )
+  if (multipliers['resolution-720P'] === undefined) {
+    multipliers['resolution-720P'] = 1
+  }
+  return multipliers
 }
 
 function ratioToBasePrice(ratio: unknown): string {
   const num = toNumberOrNull(ratio)
   if (num === null) return ''
-  return formatNumber(num * 2)
+  return formatPricingNumber(num * 2)
 }
 
 function deriveLanePrice(
@@ -236,7 +279,7 @@ function deriveLanePrice(
   const ratioNumber = toNumberOrNull(ratio)
   const denominatorNumber = toNumberOrNull(denominator)
   if (ratioNumber === null || denominatorNumber === null) return fallback
-  return formatNumber(ratioNumber * denominatorNumber)
+  return formatPricingNumber(ratioNumber * denominatorNumber)
 }
 
 function createInitialLaneState(data?: ModelRatioData | null) {
@@ -275,6 +318,7 @@ function createInitialLaneState(data?: ModelRatioData | null) {
 
 function getModeLabel(mode: PricingMode) {
   if (mode === 'per-request') return 'Per-request'
+  if (mode === 'per_second') return 'Per-second'
   if (mode === 'tiered_expr') return 'Expression'
   return 'Per-token'
 }
@@ -283,6 +327,7 @@ function getModeBadgeVariant(
   mode: PricingMode
 ): 'default' | 'secondary' | 'outline' {
   if (mode === 'per-request') return 'secondary'
+  if (mode === 'per_second') return 'secondary'
   if (mode === 'tiered_expr') return 'default'
   return 'outline'
 }
@@ -295,6 +340,7 @@ function buildPreviewRows(
   promptPrice: string,
   lanePrices: Record<LaneKey, string>,
   laneEnabled: Record<LaneKey, boolean>,
+  perSecondPrices: Record<string, string>,
   t: (key: string) => string
 ): PreviewRow[] {
   if (mode === 'tiered_expr') {
@@ -317,6 +363,22 @@ function buildPreviewRows(
         label: 'ModelPrice',
         value: values.price || t('Empty'),
       },
+    ]
+  }
+
+  if (mode === 'per_second') {
+    return [
+      { key: 'mode', label: 'BillingMode', value: 'per_second' },
+      {
+        key: 'price',
+        label: 'ModelPrice',
+        value: values.price || t('Empty'),
+      },
+      ...PER_SECOND_RESOLUTION_ROWS.map(({ key, label }) => ({
+        key,
+        label,
+        value: perSecondPrices[key] ? `$${perSecondPrices[key]}` : t('Empty'),
+      })),
     ]
   }
 
@@ -391,7 +453,10 @@ export function ModelPricingSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side='right' className='w-full gap-0 p-0 sm:max-w-2xl'>
+      <SheetContent
+        side='right'
+        className={sideDrawerContentClassName('sm:max-w-2xl')}
+      >
         <SheetHeader className='sr-only'>
           <SheetTitle>{title}</SheetTitle>
           <SheetDescription>{description}</SheetDescription>
@@ -429,6 +494,9 @@ export function ModelPricingEditorPanel({
   })
   const [billingExpr, setBillingExpr] = useState('')
   const [requestRuleExpr, setRequestRuleExpr] = useState('')
+  const [perSecondPrices, setPerSecondPrices] = useState<
+    Record<string, string>
+  >({})
   const [previewOpen, setPreviewOpen] = useState(true)
   const isEditMode = !!editData
 
@@ -465,6 +533,8 @@ export function ModelPricingEditorPanel({
       setPricingMode(
         editData.billingMode === 'tiered_expr'
           ? 'tiered_expr'
+          : editData.billingMode === 'per_second'
+            ? 'per_second'
           : editData.price
             ? 'per-request'
             : 'per-token'
@@ -491,6 +561,7 @@ export function ModelPricingEditorPanel({
     setPromptPrice(nextLaneState.promptPrice)
     setLanePrices(nextLaneState.prices)
     setLaneEnabled(nextLaneState.enabled)
+    setPerSecondPrices(createInitialPerSecondPrices(editData))
     setPreviewOpen(true)
   }, [editData, form])
 
@@ -513,12 +584,12 @@ export function ModelPricingEditorPanel({
     if (lane === 'audioOutput') {
       const audioInputPrice = toNumberOrNull(nextLanePrices.audioInput)
       if (audioInputPrice === null || audioInputPrice === 0) return ''
-      return formatNumber(priceNumber / audioInputPrice)
+      return formatPricingNumber(priceNumber / audioInputPrice)
     }
 
     const inputPrice = toNumberOrNull(nextPromptPrice)
     if (inputPrice === null || inputPrice === 0) return ''
-    return formatNumber(priceNumber / inputPrice)
+    return formatPricingNumber(priceNumber / inputPrice)
   }
 
   const syncLaneRatios = (
@@ -529,7 +600,7 @@ export function ModelPricingEditorPanel({
     const inputPrice = toNumberOrNull(nextPromptPrice)
     setFormValue(
       'ratio',
-      inputPrice !== null ? formatNumber(inputPrice / 2) : ''
+      inputPrice !== null ? formatPricingNumber(inputPrice / 2) : ''
     )
 
     laneConfigs.forEach(({ key }) => {
@@ -606,6 +677,11 @@ export function ModelPricingEditorPanel({
     }
   }
 
+  const handlePerSecondPriceChange = (key: string, value: string) => {
+    if (!numericDraftRegex.test(value)) return
+    setPerSecondPrices((previous) => ({ ...previous, [key]: value }))
+  }
+
   const handleModeChange = (value: string) => {
     const nextMode = value as PricingMode
     setPricingMode(nextMode)
@@ -625,12 +701,14 @@ export function ModelPricingEditorPanel({
         promptPrice,
         lanePrices,
         laneEnabled,
+        perSecondPrices,
         t
       ),
     [
       billingExpr,
       laneEnabled,
       lanePrices,
+      perSecondPrices,
       pricingMode,
       promptPrice,
       requestRuleExpr,
@@ -727,6 +805,13 @@ export function ModelPricingEditorPanel({
       data.requestRuleExpr = requestRuleExpr
     }
 
+    if (pricingMode === 'per_second') {
+      data.perSecondMultipliers = derivePerSecondMultipliers(
+        values.price || '',
+        perSecondPrices
+      )
+    }
+
     onSave(data)
     form.reset()
     onCancel?.()
@@ -737,7 +822,7 @@ export function ModelPricingEditorPanel({
   return (
     <div
       className={cn(
-        'bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border',
+        'bg-background flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border',
         className
       )}
     >
@@ -800,10 +885,13 @@ export function ModelPricingEditorPanel({
               />
 
               <Tabs value={pricingMode} onValueChange={handleModeChange}>
-                <TabsList className='grid w-full grid-cols-3'>
+                <TabsList className='grid w-full grid-cols-4'>
                   <TabsTrigger value='per-token'>{t('Per-token')}</TabsTrigger>
                   <TabsTrigger value='per-request'>
                     {t('Per-request')}
+                  </TabsTrigger>
+                  <TabsTrigger value='per_second'>
+                    {t('Per-second')}
                   </TabsTrigger>
                   <TabsTrigger value='tiered_expr'>
                     {t('Expression')}
@@ -893,6 +981,74 @@ export function ModelPricingEditorPanel({
                 </TabsContent>
 
                 <TabsContent
+                  value='per_second'
+                  className='flex flex-col gap-5'
+                >
+                  <FieldGroup>
+                    <FormField
+                      control={form.control}
+                      name='price'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Base per-second price')}</FormLabel>
+                          <FormControl>
+                            <InputGroup>
+                              <InputGroupAddon>$</InputGroupAddon>
+                              <InputGroupInput
+                                inputMode='decimal'
+                                placeholder='0.01'
+                                {...field}
+                                onChange={(event) => {
+                                  const value = event.target.value
+                                  if (numericDraftRegex.test(value)) {
+                                    field.onChange(value)
+                                  }
+                                }}
+                              />
+                              <InputGroupAddon align='inline-end'>
+                                {t('per second')}
+                              </InputGroupAddon>
+                            </InputGroup>
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Base USD cost per generated video second, usually the 720P price.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <Field>
+                      <FieldLabel>{t('Resolution pricing')}</FieldLabel>
+                      <FieldDescription>
+                        {t(
+                          'Optional per-second prices for request resolution factors.'
+                        )}
+                      </FieldDescription>
+                      <div className='grid gap-3 sm:grid-cols-2'>
+                        {PER_SECOND_RESOLUTION_ROWS.map(({ key, label }) => (
+                          <Field key={key} className='rounded-lg border p-3'>
+                            <FieldTitle>{label}</FieldTitle>
+                            <PriceInput
+                              value={perSecondPrices[key] || ''}
+                              placeholder={label === '720P' ? '0.9' : '1.6'}
+                              onChange={(value) =>
+                                handlePerSecondPriceChange(key, value)
+                              }
+                            />
+                            <FieldDescription>
+                              {t('USD price per generated video second.')}
+                            </FieldDescription>
+                          </Field>
+                        ))}
+                      </div>
+                    </Field>
+                  </FieldGroup>
+                </TabsContent>
+
+                <TabsContent
                   value='tiered_expr'
                   className='flex flex-col gap-5'
                 >
@@ -952,7 +1108,11 @@ export function ModelPricingEditorPanel({
             </FieldGroup>
           </div>
 
-          <SheetFooter className='bg-background/95 border-t sm:flex-row sm:items-center sm:justify-between'>
+          <SheetFooter
+            className={sideDrawerFooterClassName(
+              'grid-cols-1 sm:items-center sm:justify-between'
+            )}
+          >
             <div className='text-muted-foreground text-xs'>
               {selectedTargetCount > 0
                 ? t('{{count}} selected targets available for bulk copy.', {
@@ -1010,36 +1170,29 @@ function PriceLane(props: {
   const effectiveDisabled = props.disabled || !props.enabled
 
   return (
-    <Field
-      className={cn(
-        'rounded-lg border p-3',
-        effectiveDisabled && 'bg-muted/35'
-      )}
+    <SettingsControlGroup
+      className={cn('space-y-3', effectiveDisabled && 'opacity-75')}
       data-disabled={effectiveDisabled || undefined}
     >
-      <div className='flex items-start justify-between gap-3'>
-        <FieldContent>
-          <FieldTitle>{props.title}</FieldTitle>
-          <FieldDescription>{props.description}</FieldDescription>
-        </FieldContent>
-        <Switch
-          checked={props.enabled}
-          disabled={props.disabled}
-          onCheckedChange={props.onEnabledChange}
-          aria-label={props.title}
-        />
-      </div>
+      <SettingsSwitchField
+        checked={props.enabled}
+        disabled={props.disabled}
+        onCheckedChange={props.onEnabledChange}
+        label={props.title}
+        description={props.description}
+        aria-label={props.title}
+      />
       <PriceInput
         value={props.value}
         placeholder={props.placeholder}
         disabled={effectiveDisabled}
         onChange={props.onChange}
       />
-      <FieldDescription>
+      <p className='text-muted-foreground text-xs'>
         {props.enabled
           ? t('USD price per 1M tokens.')
           : t('Disabled lanes are omitted on save.')}
-      </FieldDescription>
-    </Field>
+      </p>
+    </SettingsControlGroup>
   )
 }

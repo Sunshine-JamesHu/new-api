@@ -130,6 +130,15 @@ const modelSchema = z.object({
       })
     }
   }),
+  PerSecondMultipliers: z.string().superRefine((value, ctx) => {
+    const result = validateJsonString(value)
+    if (!result.valid) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: result.message || 'Invalid JSON',
+      })
+    }
+  }),
 })
 
 const groupSchema = z.object({
@@ -204,7 +213,6 @@ type RatioSettingsCardProps = {
   groupDefaults: GroupFormValues
   toolPricesDefault: string
   titleKey?: string
-  descriptionKey?: string
   visibleTabs?: RatioTabId[]
 }
 
@@ -213,7 +221,6 @@ export function RatioSettingsCard({
   groupDefaults,
   toolPricesDefault,
   titleKey = 'Pricing Ratios',
-  descriptionKey = 'Configure model, caching, and group ratios used for billing',
   visibleTabs = ['models', 'groups', 'tool-prices', 'upstream-sync'],
 }: RatioSettingsCardProps) {
   const { t } = useTranslation()
@@ -251,6 +258,9 @@ export function RatioSettingsCard({
     ExposeRatioEnabled: modelDefaults.ExposeRatioEnabled,
     BillingMode: normalizeJsonString(modelDefaults.BillingMode),
     BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
+    PerSecondMultipliers: normalizeJsonString(
+      modelDefaults.PerSecondMultipliers
+    ),
   })
 
   const groupNormalizedDefaults = useRef({
@@ -282,6 +292,9 @@ export function RatioSettingsCard({
       ),
       BillingMode: formatJsonForTextarea(modelDefaults.BillingMode),
       BillingExpr: formatJsonForTextarea(modelDefaults.BillingExpr),
+      PerSecondMultipliers: formatJsonForTextarea(
+        modelDefaults.PerSecondMultipliers
+      ),
     },
   })
 
@@ -316,6 +329,9 @@ export function RatioSettingsCard({
       ExposeRatioEnabled: modelDefaults.ExposeRatioEnabled,
       BillingMode: normalizeJsonString(modelDefaults.BillingMode),
       BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
+      PerSecondMultipliers: normalizeJsonString(
+        modelDefaults.PerSecondMultipliers
+      ),
     }
 
     modelForm.reset({
@@ -332,6 +348,9 @@ export function RatioSettingsCard({
       ),
       BillingMode: formatJsonForTextarea(modelDefaults.BillingMode),
       BillingExpr: formatJsonForTextarea(modelDefaults.BillingExpr),
+      PerSecondMultipliers: formatJsonForTextarea(
+        modelDefaults.PerSecondMultipliers
+      ),
     })
   }, [modelDefaults, modelForm])
 
@@ -375,11 +394,15 @@ export function RatioSettingsCard({
         ExposeRatioEnabled: values.ExposeRatioEnabled,
         BillingMode: normalizeJsonString(values.BillingMode),
         BillingExpr: normalizeJsonString(values.BillingExpr),
+        PerSecondMultipliers: normalizeJsonString(
+          values.PerSecondMultipliers
+        ),
       }
 
       const apiKeyMap: Record<string, string> = {
         BillingMode: 'billing_setting.billing_mode',
         BillingExpr: 'billing_setting.billing_expr',
+        PerSecondMultipliers: 'billing_setting.per_second_multipliers',
       }
 
       const updates = (
@@ -388,12 +411,17 @@ export function RatioSettingsCard({
         (key) => normalized[key] !== modelNormalizedDefaults.current[key]
       )
 
+      if (updates.length === 0) {
+        toast.info(t('No model price changes to save'))
+        return
+      }
+
       for (const key of updates) {
         const apiKey = apiKeyMap[key as string] || (key as string)
         await updateOption.mutateAsync({ key: apiKey, value: normalized[key] })
       }
     },
-    [updateOption]
+    [t, updateOption]
   )
 
   const saveGroupRatios = useCallback(
@@ -491,13 +519,15 @@ export function RatioSettingsCard({
           AudioCompletionRatio: modelDefaults.AudioCompletionRatio,
           'billing_setting.billing_mode': modelDefaults.BillingMode,
           'billing_setting.billing_expr': modelDefaults.BillingExpr,
+          'billing_setting.per_second_multipliers':
+            modelDefaults.PerSecondMultipliers,
         }}
       />
     )
   }
 
   return (
-    <SettingsSection title={t(titleKey)} description={t(descriptionKey)}>
+    <SettingsSection title={t(titleKey)}>
       {visibleTabs.length === 1 ? (
         renderTabContent(defaultTab)
       ) : (

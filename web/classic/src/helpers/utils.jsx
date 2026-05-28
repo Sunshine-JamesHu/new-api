@@ -608,6 +608,16 @@ export const selectFilter = (input, option) => {
 
 // -------------------------------
 // 模型定价计算工具函数
+const PER_SECOND_RESOLUTION_PRICE_ITEMS = [
+  { key: 'resolution-720P', label: '720P' },
+  { key: 'resolution-1080P', label: '1080P' },
+];
+
+const getPositiveMultiplier = (multipliers, key) => {
+  const value = Number(multipliers?.[key]);
+  return Number.isFinite(value) && value > 0 ? value : 1;
+};
+
 export const calculateModelPrice = ({
   record,
   selectedGroup,
@@ -749,11 +759,24 @@ export const calculateModelPrice = ({
 
   if (record.quota_type === 1) {
     // 按次计费
-    const priceUSD = parseFloat(record.model_price) * usedGroupRatio;
+    const priceUSD = (parseFloat(record.model_price) || 0) * usedGroupRatio;
+    const isPerSecond = record.billing_mode === 'per_second';
+    const resolutionPrices = isPerSecond
+      ? PER_SECOND_RESOLUTION_PRICE_ITEMS.map((item) => ({
+          ...item,
+          value: displayPrice(
+            priceUSD *
+              getPositiveMultiplier(record.per_second_multipliers, item.key),
+          ),
+        }))
+      : [];
     const displayVal = displayPrice(priceUSD);
 
     return {
       price: displayVal,
+      unit: isPerSecond ? 'second' : 'request',
+      isPerSecond,
+      resolutionPrices,
       isPerToken: false,
       isTokensDisplay: false,
       usedGroup,
@@ -886,12 +909,26 @@ export const getModelPriceItems = (
     ].filter((item) => item.value !== null && item.value !== undefined && item.value !== '');
   }
 
+  if (priceData.isPerSecond && Array.isArray(priceData.resolutionPrices)) {
+    return priceData.resolutionPrices
+      .map((item) => ({
+        key: item.key,
+        label: item.label,
+        value: item.value,
+        suffix: ` / ${t('秒')}`,
+      }))
+      .filter(
+        (item) =>
+          item.value !== null && item.value !== undefined && item.value !== '',
+      );
+  }
+
   return [
     {
-      key: 'fixed',
-      label: t('模型价格'),
+      key: priceData.isPerSecond ? 'second' : 'fixed',
+      label: priceData.isPerSecond ? t('按秒价格') : t('模型价格'),
       value: priceData.price,
-      suffix: ` / ${t('次')}`,
+      suffix: ` / ${priceData.isPerSecond ? t('秒') : t('次')}`,
     },
   ].filter((item) => item.value !== null && item.value !== undefined && item.value !== '');
 };

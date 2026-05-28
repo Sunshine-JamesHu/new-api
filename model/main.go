@@ -294,6 +294,9 @@ func migrateDB() error {
 			return err
 		}
 	}
+	if err := migrateHappyHorseChannelType(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -363,7 +366,24 @@ func migrateDBFast() error {
 			return err
 		}
 	}
+	if err := migrateHappyHorseChannelType(); err != nil {
+		return err
+	}
 	common.SysLog("database migrated")
+	return nil
+}
+
+func migrateHappyHorseChannelType() error {
+	for _, legacyType := range []int{58, 999} {
+		if legacyType == constant.ChannelTypeHappyHorse {
+			continue
+		}
+		if err := DB.Model(&Channel{}).
+			Where("type = ?", legacyType).
+			Update("type", constant.ChannelTypeHappyHorse).Error; err != nil {
+			return fmt.Errorf("failed to migrate HappyHorse channel type: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -399,6 +419,7 @@ func ensureSubscriptionPlanTableSQLite() error {
 ` + "`sort_order`" + ` integer DEFAULT 0,
 ` + "`stripe_price_id`" + ` varchar(128) DEFAULT '',
 ` + "`creem_product_id`" + ` varchar(128) DEFAULT '',
+` + "`waffo_pancake_product_id`" + ` varchar(128) DEFAULT '',
 ` + "`max_purchase_per_user`" + ` integer DEFAULT 0,
 ` + "`upgrade_group`" + ` varchar(64) DEFAULT '',
 ` + "`total_amount`" + ` bigint NOT NULL DEFAULT 0,
@@ -432,6 +453,7 @@ PRIMARY KEY (` + "`id`" + `)
 		{Name: "sort_order", DDL: "`sort_order` integer DEFAULT 0"},
 		{Name: "stripe_price_id", DDL: "`stripe_price_id` varchar(128) DEFAULT ''"},
 		{Name: "creem_product_id", DDL: "`creem_product_id` varchar(128) DEFAULT ''"},
+		{Name: "waffo_pancake_product_id", DDL: "`waffo_pancake_product_id` varchar(128) DEFAULT ''"},
 		{Name: "max_purchase_per_user", DDL: "`max_purchase_per_user` integer DEFAULT 0"},
 		{Name: "upgrade_group", DDL: "`upgrade_group` varchar(64) DEFAULT ''"},
 		{Name: "total_amount", DDL: "`total_amount` bigint NOT NULL DEFAULT 0"},

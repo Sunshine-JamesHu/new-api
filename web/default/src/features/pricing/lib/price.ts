@@ -24,6 +24,19 @@ import type { PricingModel, TokenUnit, PriceType } from '../types'
 // Price Calculation Utilities
 // ----------------------------------------------------------------------------
 
+export const PER_SECOND_RESOLUTION_PRICE_ITEMS = [
+  { key: 'resolution-720P', label: '720P' },
+  { key: 'resolution-1080P', label: '1080P' },
+] as const
+
+function getPositiveMultiplier(
+  multipliers: Record<string, number> | undefined,
+  key: string
+): number {
+  const value = Number(multipliers?.[key])
+  return Number.isFinite(value) && value > 0 ? value : 1
+}
+
 /**
  * Strip trailing zeros from formatted price string while preserving currency symbols
  */
@@ -261,6 +274,64 @@ export function formatFixedPrice(
   })
 }
 
+export function getPerSecondResolutionPrices(
+  model: PricingModel,
+  group: string,
+  showWithRecharge = false,
+  priceRate = 1,
+  usdExchangeRate = 1,
+  groupRatio: Record<string, number>
+): { key: string; label: string; formatted: string }[] {
+  const ratio = groupRatio[group] || 1
+
+  return PER_SECOND_RESOLUTION_PRICE_ITEMS.map((item) => {
+    let priceInUSD =
+      (model.model_price || 0) *
+      ratio *
+      getPositiveMultiplier(model.per_second_multipliers, item.key)
+
+    priceInUSD = applyRechargeRate(
+      priceInUSD,
+      showWithRecharge,
+      priceRate,
+      usdExchangeRate
+    )
+
+    return {
+      key: item.key,
+      label: item.label,
+      formatted: formatCurrencyFromUSD(priceInUSD, {
+        digitsLarge: 4,
+        digitsSmall: 4,
+        abbreviate: false,
+      }),
+    }
+  })
+}
+
+export function getPerSecondResolutionPricesFromMinGroup(
+  model: PricingModel,
+  showWithRecharge = false,
+  priceRate = 1,
+  usdExchangeRate = 1
+): { key: string; label: string; formatted: string }[] {
+  const enableGroups = Array.isArray(model.enable_groups)
+    ? model.enable_groups
+    : []
+  const groupRatio = model.group_ratio || {}
+  const minRatio = getMinGroupRatio(enableGroups, groupRatio)
+  const minGroupRatioMap = { _min: minRatio }
+
+  return getPerSecondResolutionPrices(
+    model,
+    '_min',
+    showWithRecharge,
+    priceRate,
+    usdExchangeRate,
+    minGroupRatioMap
+  )
+}
+
 /**
  * Format fixed price for pay-per-request models (minimum price from all groups)
  */
@@ -294,4 +365,8 @@ export function formatRequestPrice(
     digitsSmall: 4,
     abbreviate: false,
   })
+}
+
+export function getFixedPriceUnit(model: PricingModel): string {
+  return model.billing_mode === 'per_second' ? 'second' : 'request'
 }

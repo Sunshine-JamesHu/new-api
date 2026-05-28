@@ -154,6 +154,31 @@ func pricingByModelName(pricings []model.Pricing) map[string]model.Pricing {
 	return byName
 }
 
+func TestChannelModelsIncludeHappyHorseTaskModels(t *testing.T) {
+	require.Contains(t, openAIModelsMap, "happyhorse-1.0-t2v")
+
+	aliModels := channelId2Models[constant.ChannelTypeAli]
+	require.NotContains(t, aliModels, "kling/kling-v3-video-generation")
+	require.NotContains(t, aliModels, "kling/kling-v3-omni-video-generation")
+	require.NotContains(t, aliModels, "happyhorse-1.0-t2v")
+	require.NotContains(t, aliModels, "happyhorse-1.0-video-edit")
+
+	happyHorseModels := channelId2Models[constant.ChannelTypeHappyHorse]
+	require.Contains(t, happyHorseModels, "happyhorse-1.0-t2v")
+	require.Contains(t, happyHorseModels, "happyhorse-1.0-video-edit")
+	require.NotContains(t, happyHorseModels, "kling/kling-v3-video-generation")
+	require.NotContains(t, happyHorseModels, "qwen-plus")
+
+	require.Equal(
+		t,
+		[]constant.EndpointType{constant.EndpointTypeOpenAIVideo},
+		common.GetEndpointTypesByChannelType(constant.ChannelTypeHappyHorse, "happyhorse-1.0-t2v"),
+	)
+	endpointInfo, ok := common.GetDefaultEndpointInfo(constant.EndpointTypeOpenAIVideo)
+	require.True(t, ok)
+	require.Equal(t, "/v1/videos", endpointInfo.Path)
+}
+
 func TestListModelsIncludesTieredBillingModel(t *testing.T) {
 	withSelfUseModeDisabled(t)
 	withTieredBillingConfig(t, map[string]string{
@@ -224,6 +249,7 @@ func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
 		"zz-token-tiered-visible-model":      true,

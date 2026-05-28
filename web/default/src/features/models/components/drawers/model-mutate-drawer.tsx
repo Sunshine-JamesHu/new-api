@@ -50,7 +50,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
 import {
   Sheet,
   SheetClose,
@@ -62,6 +61,14 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  SideDrawerSection,
+  sideDrawerContentClassName,
+  sideDrawerFooterClassName,
+  sideDrawerFormClassName,
+  sideDrawerHeaderClassName,
+  sideDrawerSwitchItemClassName,
+} from '@/components/drawer-layout'
 import { JsonEditor } from '@/components/json-editor'
 import { TagInput } from '@/components/tag-input'
 import {
@@ -100,7 +107,7 @@ const extendedModelFormSchema = z.object({
 
 type ExtendedModelFormValues = z.infer<typeof extendedModelFormSchema>
 
-type PricingMode = 'per-token' | 'per-request'
+type PricingMode = 'per-token' | 'per-request' | 'per_second'
 type PricingSubMode = 'ratio' | 'price'
 
 type ModelMutateDrawerProps = {
@@ -176,6 +183,7 @@ export function ModelMutateDrawer({
       ExposeRatioEnabled: false,
       'billing_setting.billing_mode': '{}',
       'billing_setting.billing_expr': '{}',
+      'billing_setting.per_second_multipliers': '{}',
       'tool_price_setting.prices': '{}',
       TopupGroupRatio: '',
       GroupRatio: '',
@@ -308,6 +316,10 @@ export function ModelMutateDrawer({
           modelSettings.AudioCompletionRatio,
           { fallback: {}, silent: true }
         )
+        const billingModeMap = safeJsonParse<Record<string, string>>(
+          modelSettings['billing_setting.billing_mode'],
+          { fallback: {}, silent: true }
+        )
 
         // Extract ratio config for this model
         const modelName = model.model_name
@@ -321,7 +333,11 @@ export function ModelMutateDrawer({
 
         // Determine pricing mode
         if (price !== undefined && price !== null) {
-          setPricingMode('per-request')
+          setPricingMode(
+            billingModeMap[modelName] === 'per_second'
+              ? 'per_second'
+              : 'per-request'
+          )
           form.reset({
             ...baseModelData,
             price: price.toString(),
@@ -419,6 +435,9 @@ export function ModelMutateDrawer({
             (pricingMode === 'per-request' &&
               values.price &&
               values.price !== '') ||
+            (pricingMode === 'per_second' &&
+              values.price &&
+              values.price !== '') ||
             (pricingMode === 'per-token' &&
               (values.ratio ||
                 values.cacheRatio ||
@@ -459,6 +478,10 @@ export function ModelMutateDrawer({
               modelSettings.AudioCompletionRatio,
               { fallback: {}, silent: true }
             )
+            const billingModeMap = safeJsonParse<Record<string, string>>(
+              modelSettings['billing_setting.billing_mode'],
+              { fallback: {}, silent: true }
+            )
 
             // Remove old model name entries if model name changed (always, even if no new config)
             if (isEditing && oldModelName && oldModelName !== finalModelName) {
@@ -469,6 +492,7 @@ export function ModelMutateDrawer({
               delete imageMap[oldModelName]
               delete audioMap[oldModelName]
               delete audioCompletionMap[oldModelName]
+              delete billingModeMap[oldModelName]
             }
 
             // Remove current model name from all maps first (always, to handle mode switches or clearing)
@@ -480,6 +504,7 @@ export function ModelMutateDrawer({
             delete imageMap[finalModelName]
             delete audioMap[finalModelName]
             delete audioCompletionMap[finalModelName]
+            delete billingModeMap[finalModelName]
 
             // Only add new entries if user provided new configuration
             if (hasRatioConfig) {
@@ -489,6 +514,13 @@ export function ModelMutateDrawer({
                 values.price !== ''
               ) {
                 priceMap[finalModelName] = parseFloat(values.price)
+              } else if (
+                pricingMode === 'per_second' &&
+                values.price &&
+                values.price !== ''
+              ) {
+                priceMap[finalModelName] = parseFloat(values.price)
+                billingModeMap[finalModelName] = 'per_second'
               } else if (pricingMode === 'per-token') {
                 if (values.ratio && values.ratio !== '') {
                   ratioMap[finalModelName] = parseFloat(values.ratio)
@@ -582,6 +614,19 @@ export function ModelMutateDrawer({
               })
             }
 
+            const newBillingMode = normalizeJsonString(
+              JSON.stringify(billingModeMap)
+            )
+            if (
+              newBillingMode !==
+              normalizeJsonString(modelSettings['billing_setting.billing_mode'])
+            ) {
+              updates.push({
+                key: 'billing_setting.billing_mode',
+                value: newBillingMode,
+              })
+            }
+
             // Apply all updates (including deletions when clearing fields)
             for (const update of updates) {
               await updateOption.mutateAsync(update)
@@ -627,8 +672,8 @@ export function ModelMutateDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className='flex h-dvh w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl'>
-        <SheetHeader className='border-b px-4 py-3 text-start sm:px-6 sm:py-4'>
+      <SheetContent className={sideDrawerContentClassName('sm:max-w-2xl')}>
+        <SheetHeader className={sideDrawerHeaderClassName()}>
           <SheetTitle>
             {isEditing ? t('Edit Model') : t('Create Model')}
           </SheetTitle>
@@ -647,10 +692,10 @@ export function ModelMutateDrawer({
             onSubmit={form.handleSubmit(
               onSubmit as Parameters<typeof form.handleSubmit>[0]
             )}
-            className='flex-1 space-y-4 overflow-y-auto px-3 py-3 pb-4 sm:space-y-6 sm:px-4'
+            className={sideDrawerFormClassName()}
           >
             {/* Basic Information */}
-            <div className='space-y-4'>
+            <SideDrawerSection>
               <h3 className='text-sm font-semibold'>
                 {t('Basic Information')}
               </h3>
@@ -774,12 +819,10 @@ export function ModelMutateDrawer({
                   </FormItem>
                 )}
               />
-            </div>
-
-            <Separator />
+            </SideDrawerSection>
 
             {/* Matching Configuration */}
-            <div className='space-y-4'>
+            <SideDrawerSection>
               <h3 className='text-sm font-semibold'>{t('Matching Rules')}</h3>
 
               <FormField
@@ -822,12 +865,10 @@ export function ModelMutateDrawer({
                   </FormItem>
                 )}
               />
-            </div>
-
-            <Separator />
+            </SideDrawerSection>
 
             {/* Endpoints Configuration */}
-            <div className='space-y-4'>
+            <SideDrawerSection>
               <div className='flex items-center justify-between'>
                 <h3 className='text-sm font-semibold'>{t('Endpoints')}</h3>
                 <Select<string>
@@ -883,12 +924,10 @@ export function ModelMutateDrawer({
                   </FormItem>
                 )}
               />
-            </div>
-
-            <Separator />
+            </SideDrawerSection>
 
             {/* Pricing Configuration */}
-            <div className='space-y-4'>
+            <SideDrawerSection>
               <h3 className='text-sm font-semibold'>
                 {t('Pricing Configuration')}
               </h3>
@@ -913,16 +952,26 @@ export function ModelMutateDrawer({
                       {t('Per-request (fixed price)')}
                     </Label>
                   </div>
+                  <div className='flex items-center space-x-2'>
+                    <RadioGroupItem value='per_second' id='per-second' />
+                    <Label htmlFor='per-second' className='font-normal'>
+                      {t('Per-second (fixed price)')}
+                    </Label>
+                  </div>
                 </RadioGroup>
               </div>
 
-              {pricingMode === 'per-request' ? (
+              {pricingMode === 'per-request' || pricingMode === 'per_second' ? (
                 <FormField
                   control={form.control}
                   name='price'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Fixed price (USD)')}</FormLabel>
+                      <FormLabel>
+                        {pricingMode === 'per_second'
+                          ? t('Per-second price (USD)')
+                          : t('Fixed price (USD)')}
+                      </FormLabel>
                       <FormControl>
                         <Input
                           type='text'
@@ -937,9 +986,11 @@ export function ModelMutateDrawer({
                         />
                       </FormControl>
                       <FormDescription>
-                        {t(
-                          'Cost in USD per request, regardless of tokens used.'
-                        )}
+                        {pricingMode === 'per_second'
+                          ? t('Cost in USD per generated video second.')
+                          : t(
+                              'Cost in USD per request, regardless of tokens used.'
+                            )}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -1114,7 +1165,7 @@ export function ModelMutateDrawer({
                         }`}
                       />
                     </CollapsibleTrigger>
-                    <CollapsibleContent className='space-y-6 pt-6'>
+                    <CollapsibleContent className='flex flex-col gap-4 pt-4'>
                       <FormField
                         control={form.control}
                         name='cacheRatio'
@@ -1226,20 +1277,18 @@ export function ModelMutateDrawer({
                   </Collapsible>
                 </>
               )}
-            </div>
-
-            <Separator />
+            </SideDrawerSection>
 
             {/* Status & Sync */}
-            <div className='space-y-4'>
+            <SideDrawerSection>
               <h3 className='text-sm font-semibold'>{t('Status & Sync')}</h3>
 
               <FormField
                 control={form.control}
                 name='status'
                 render={({ field }) => (
-                  <FormItem className='flex items-center justify-between rounded-lg border p-4'>
-                    <div className='space-y-0.5'>
+                  <FormItem className={sideDrawerSwitchItemClassName()}>
+                    <div className='flex flex-col gap-0.5'>
                       <FormLabel className='text-base'>
                         {t('Enabled')}
                       </FormLabel>
@@ -1261,8 +1310,8 @@ export function ModelMutateDrawer({
                 control={form.control}
                 name='sync_official'
                 render={({ field }) => (
-                  <FormItem className='flex items-center justify-between rounded-lg border p-4'>
-                    <div className='space-y-0.5'>
+                  <FormItem className={sideDrawerSwitchItemClassName()}>
+                    <div className='flex flex-col gap-0.5'>
                       <FormLabel className='text-base'>
                         {t('Official Sync')}
                       </FormLabel>
@@ -1279,11 +1328,11 @@ export function ModelMutateDrawer({
                   </FormItem>
                 )}
               />
-            </div>
+            </SideDrawerSection>
           </form>
         </Form>
 
-        <SheetFooter className='grid grid-cols-2 gap-2 border-t px-4 py-3 sm:flex sm:px-6 sm:py-4'>
+        <SheetFooter className={sideDrawerFooterClassName()}>
           <SheetClose
             render={<Button variant='outline' disabled={isSubmitting} />}
           >

@@ -57,7 +57,11 @@ export const usePricingFilterCounts = ({
 
     // 计费类型
     if (!ignore.includes('quota') && filterQuotaType !== 'all') {
-      if (model.quota_type !== filterQuotaType) return false;
+      if (filterQuotaType === 'second') {
+        if (model.billing_mode !== 'per_second') return false;
+      } else if (filterQuotaType === 1) {
+        if (model.quota_type !== 1 || model.billing_mode === 'per_second') return false;
+      } else if (model.quota_type !== filterQuotaType) return false;
     }
 
     // 端点类型

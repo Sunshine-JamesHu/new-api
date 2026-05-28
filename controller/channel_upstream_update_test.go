@@ -3,6 +3,7 @@ package controller
 import (
 	"testing"
 
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/stretchr/testify/require"
@@ -83,6 +84,19 @@ func TestCollectPendingApplyUpstreamModelChanges(t *testing.T) {
 
 func TestChannelUpstreamModelUpdateSelectFieldsIncludeModelMapping(t *testing.T) {
 	require.Contains(t, channelUpstreamModelUpdateSelectFields, "model_mapping")
+}
+
+func TestFetchChannelUpstreamModelIDsUsesHappyHorseStaticModels(t *testing.T) {
+	models, err := fetchChannelUpstreamModelIDs(&model.Channel{Type: constant.ChannelTypeHappyHorse})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"happyhorse-1.0-t2v",
+		"happyhorse-1.0-i2v",
+		"happyhorse-1.0-r2v",
+		"happyhorse-1.0-video-edit",
+	}, models)
+	require.NotContains(t, models, "kling/kling-v3-video-generation")
 }
 
 func TestNormalizeChannelModelMapping(t *testing.T) {

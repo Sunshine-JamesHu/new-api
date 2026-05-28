@@ -52,6 +52,7 @@ import {
   isSelectableUpstreamValue,
   RATIO_SYNC_FIELDS,
   type ModelRow,
+  type RatioSyncValue,
   type ResolutionsMap,
 } from './upstream-ratio-sync-helpers'
 
@@ -63,7 +64,7 @@ type UpstreamRatioSyncTableProps = {
   onSelectValue: (
     model: string,
     ratioType: RatioType,
-    value: number | string,
+    value: RatioSyncValue,
     sourceName: string
   ) => void
   onUnselectValue: (model: string, ratioType: RatioType) => void
@@ -141,7 +142,7 @@ export function UpstreamRatioSyncTable({
               onSelectValue(
                 row.model,
                 ratioType,
-                upstreamVal as number | string,
+                upstreamVal as RatioSyncValue,
                 upstream
               )
             }
