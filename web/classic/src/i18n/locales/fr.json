@@ -3395,7 +3395,6 @@
     "透传请求头": "",
     "递归": "Récursif",
     "递归策略": "Stratégie récursive",
-    "通义千问": "Qwen",
     "通用设置": "Général",
     "通知": "Avis",
     "通知、价格和隐私相关设置": "Paramètres de notification, de prix et de confidentialité",
@@ -3679,6 +3678,14 @@
     "并确认自行承担部署": "confirm that I bear legal responsibility arising from deployment",
     "运营和收费行为产生的法律责任": "operation and charging behavior",
     "，": ", ",
-    "、": ", "
+    "、": ", ",
+    "$/秒": "$/seconde",
+    "按秒": "Par seconde",
+    "按秒价格": "Prix par seconde",
+    "按秒计费": "Facturation par seconde",
+    "输入每秒生成价格": "Saisissez le prix de génération par seconde",
+    "适合视频模型按生成秒数计费。": "Adapté aux modèles vidéo facturés selon les secondes générées.",
+    "HappyHorse": "HappyHorse",
+    "通义千问": "Qwen"
   }
 }

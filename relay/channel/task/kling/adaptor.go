@@ -2,6 +2,7 @@ package kling
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -25,6 +26,7 @@ import (
 	taskcommon "github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 )
 
 // ============================
@@ -179,6 +181,25 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	return bytes.NewReader(data), nil
 }
 
+func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
+	if !billing_setting.IsPerSecondBilling(info.OriginModelName) {
+		return nil
+	}
+	req, err := relaycommon.GetTaskRequest(c)
+	if err != nil {
+		return nil
+	}
+	body, err := a.convertToRequestPayload(&req, info)
+	if err != nil {
+		return nil
+	}
+	seconds, err := strconv.ParseFloat(body.Duration, 64)
+	if err != nil || seconds <= 0 {
+		seconds = 5
+	}
+	return map[string]float64{"seconds": seconds}
+}
+
 // DoRequest delegates to common helper.
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
 	if action := c.GetString("action"); action != "" {
@@ -264,11 +285,17 @@ func (a *TaskAdaptor) GetChannelName() string {
 // ============================
 
 func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, info *relaycommon.RelayInfo) (*requestPayload, error) {
+	duration := taskcommon.DefaultInt(req.Duration, 5)
+	if req.Seconds != "" {
+		if seconds, err := strconv.ParseFloat(req.Seconds, 64); err == nil && seconds > 0 {
+			duration = int(math.Ceil(seconds))
+		}
+	}
 	r := requestPayload{
 		Prompt:         req.Prompt,
 		Image:          req.Image,
 		Mode:           taskcommon.DefaultString(req.Mode, "std"),
-		Duration:       fmt.Sprintf("%d", taskcommon.DefaultInt(req.Duration, 5)),
+		Duration:       fmt.Sprintf("%d", duration),
 		AspectRatio:    a.getAspectRatio(req.Size),
 		ModelName:      info.UpstreamModelName,
 		Model:          info.UpstreamModelName,
@@ -283,10 +310,87 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, in
 		r.ModelName = "kling-v1"
 		r.Model = "kling-v1"
 	}
-	if err := taskcommon.UnmarshalMetadata(req.Metadata, &r); err != nil {
+	metadata, err := normalizeKlingMetadata(req.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	if err := taskcommon.UnmarshalMetadata(metadata, &r); err != nil {
 		return nil, errors.Wrap(err, "unmarshal metadata failed")
 	}
 	return &r, nil
+}
+
+func normalizeKlingMetadata(metadata map[string]interface{}) (map[string]interface{}, error) {
+	if metadata == nil {
+		return nil, nil
+	}
+	normalized := make(map[string]interface{}, len(metadata))
+	for k, v := range metadata {
+		normalized[k] = v
+	}
+	if durationValue, ok := normalized["duration"]; ok {
+		duration, err := klingDurationString(durationValue)
+		if err != nil {
+			return nil, err
+		}
+		if duration != "" {
+			normalized["duration"] = duration
+		}
+	}
+	return normalized, nil
+}
+
+func klingDurationString(value interface{}) (string, error) {
+	switch v := value.(type) {
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return "", nil
+		}
+		seconds, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return "", fmt.Errorf("invalid duration: %s", v)
+		}
+		if seconds <= 0 {
+			return "", nil
+		}
+		return fmt.Sprintf("%d", int(math.Ceil(seconds))), nil
+	case float64:
+		if v <= 0 {
+			return "", nil
+		}
+		return fmt.Sprintf("%d", int(math.Ceil(v))), nil
+	case float32:
+		if v <= 0 {
+			return "", nil
+		}
+		return fmt.Sprintf("%d", int(math.Ceil(float64(v)))), nil
+	case int:
+		if v <= 0 {
+			return "", nil
+		}
+		return strconv.Itoa(v), nil
+	case int64:
+		if v <= 0 {
+			return "", nil
+		}
+		return strconv.FormatInt(v, 10), nil
+	case int32:
+		if v <= 0 {
+			return "", nil
+		}
+		return strconv.FormatInt(int64(v), 10), nil
+	case json.Number:
+		seconds, err := strconv.ParseFloat(v.String(), 64)
+		if err != nil {
+			return "", fmt.Errorf("invalid duration: %s", v.String())
+		}
+		if seconds <= 0 {
+			return "", nil
+		}
+		return fmt.Sprintf("%d", int(math.Ceil(seconds))), nil
+	default:
+		return "", fmt.Errorf("invalid duration type: %T", value)
+	}
 }
 
 func (a *TaskAdaptor) getAspectRatio(size string) string {

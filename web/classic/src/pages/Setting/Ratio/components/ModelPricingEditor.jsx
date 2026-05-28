@@ -44,6 +44,8 @@ import { useTranslation } from 'react-i18next';
 import {
   PAGE_SIZE,
   PRICE_SUFFIX,
+  PER_SECOND_PRICE_SUFFIX,
+  PER_SECOND_RESOLUTION_ROWS,
   buildSummaryText,
   hasValue,
   useModelPricingEditorState,
@@ -123,6 +125,7 @@ export default function ModelPricingEditor({
     isOptionalFieldEnabled,
     handleOptionalFieldToggle,
     handleNumericFieldChange,
+    handlePerSecondPriceChange,
     handleBillingModeChange,
     handleBillingExprChange,
     handleRequestRuleExprChange,
@@ -191,6 +194,8 @@ export default function ModelPricingEditor({
             color={
               record.billingMode === 'per-request'
                 ? 'teal'
+                : record.billingMode === 'per_second'
+                  ? 'cyan'
                 : record.billingMode === 'tiered_expr'
                   ? 'amber'
                   : 'violet'
@@ -198,6 +203,8 @@ export default function ModelPricingEditor({
           >
             {record.billingMode === 'per-request'
               ? t('按次计费')
+              : record.billingMode === 'per_second'
+                ? t('按秒计费')
               : record.billingMode === 'tiered_expr'
                 ? getExprModeLabel(record)
                 : t('按量计费')}
@@ -380,6 +387,8 @@ export default function ModelPricingEditor({
                   color={
                     selectedModel.billingMode === 'per-request'
                       ? 'teal'
+                      : selectedModel.billingMode === 'per_second'
+                        ? 'cyan'
                       : selectedModel.billingMode === 'tiered_expr'
                         ? 'amber'
                         : 'blue'
@@ -387,6 +396,8 @@ export default function ModelPricingEditor({
                 >
                   {selectedModel.billingMode === 'per-request'
                     ? t('按次计费')
+                    : selectedModel.billingMode === 'per_second'
+                      ? t('按秒计费')
                     : selectedModel.billingMode === 'tiered_expr'
                       ? getExprModeLabel(selectedModel)
                       : t('按量计费')}
@@ -414,6 +425,7 @@ export default function ModelPricingEditor({
                   >
                     <Radio value='per-token'>{t('按量计费')}</Radio>
                     <Radio value='per-request'>{t('按次计费')}</Radio>
+                    <Radio value='per_second'>{t('按秒计费')}</Radio>
                     <Radio value='tiered_expr'>{t('表达式/阶梯计费')}</Radio>
                   </RadioGroup>
                   <div className='mt-2 text-xs text-gray-500'>
@@ -449,6 +461,53 @@ export default function ModelPricingEditor({
                     onChange={(value) => handleNumericFieldChange('fixedPrice', value)}
                     extraText={t('适合 MJ / 任务类等按次收费模型。')}
                   />
+                ) : selectedModel.billingMode === 'per_second' ? (
+                  <Card
+                    bodyStyle={{ padding: 16 }}
+                    style={{
+                      marginBottom: 16,
+                      background: 'var(--semi-color-fill-0)',
+                    }}
+                  >
+                    <div className='font-medium mb-3'>{t('按秒价格')}</div>
+                    <PriceInput
+                      label={t('基础按秒价格')}
+                      value={selectedModel.fixedPrice}
+                      placeholder={t('输入每秒生成价格')}
+                      suffix={t('$/秒')}
+                      onChange={(value) =>
+                        handleNumericFieldChange('fixedPrice', value)
+                      }
+                      extraText={t('通常填写 720P 的每秒基础价格。')}
+                    />
+                    <div className='font-medium mb-2'>{t('分辨率价格')}</div>
+                    <div className='text-xs text-gray-500 mb-3'>
+                      {t('填写不同分辨率的每秒价格，保存时会自动换算为倍率。')}
+                    </div>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: isMobile
+                          ? 'minmax(0, 1fr)'
+                          : 'repeat(2, minmax(0, 1fr))',
+                        gap: 12,
+                      }}
+                    >
+                      {PER_SECOND_RESOLUTION_ROWS.map(({ key, label }) => (
+                        <PriceInput
+                          key={key}
+                          label={label}
+                          value={selectedModel.perSecondPrices?.[key] || ''}
+                          placeholder={label === '720P' ? '0.9' : '1.6'}
+                          suffix={PER_SECOND_PRICE_SUFFIX}
+                          onChange={(value) =>
+                            handlePerSecondPriceChange(key, value)
+                          }
+                          extraText={t('该分辨率每秒价格')}
+                        />
+                      ))}
+                    </div>
+                  </Card>
                 ) : selectedModel.billingMode === 'tiered_expr' ? (
                   <TieredPricingEditor
                     model={selectedModel}

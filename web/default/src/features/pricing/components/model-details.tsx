@@ -62,7 +62,11 @@ import {
 import { parseTags } from '../lib/filters'
 import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
 import { inferModelMetadata } from '../lib/model-metadata'
-import { formatFixedPrice, formatGroupPrice } from '../lib/price'
+import {
+  formatFixedPrice,
+  formatGroupPrice,
+  getPerSecondResolutionPrices,
+} from '../lib/price'
 import type {
   Modality,
   ModelCapability,
@@ -302,7 +306,9 @@ function ModelHeader(props: { model: PricingModel }) {
         <span className='text-muted-foreground/70'>
           {model.quota_type === QUOTA_TYPE_VALUES.TOKEN
             ? t('Token-based')
-            : t('Per Request')}
+            : model.billing_mode === 'per_second'
+              ? t('Per Second')
+              : t('Per Request')}
         </span>
         {model.billing_mode === 'tiered_expr' && model.billing_expr && (
           <>
@@ -477,12 +483,46 @@ function PriceSection(props: {
   }
 
   if (!isTokenBased) {
+    if (props.model.billing_mode === 'per_second') {
+      const resolutionPrices = getPerSecondResolutionPrices(
+        props.model,
+        baseGroupKey,
+        props.showRechargePrice,
+        props.priceRate,
+        props.usdExchangeRate,
+        baseGroupRatioMap
+      )
+
+      return (
+        <section>
+          <SectionTitle>{t('Base Price')}</SectionTitle>
+          <div className='grid grid-cols-2 gap-2'>
+            {resolutionPrices.map((item) => (
+              <div key={item.key} className='bg-muted/20 rounded-lg border p-3'>
+                <div className='text-muted-foreground text-xs'>
+                  {item.label}
+                </div>
+                <div className='text-foreground mt-1 font-mono text-base font-semibold tabular-nums'>
+                  {item.formatted}
+                  <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
+                    / {t('second')}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )
+    }
+
     return (
       <section>
         <SectionTitle>{t('Base Price')}</SectionTitle>
         <div className='flex items-baseline justify-between'>
           <span className='text-muted-foreground text-sm'>
-            {t('Per request')}
+            {props.model.billing_mode === 'per_second'
+              ? t('Per second')
+              : t('Per request')}
           </span>
           <span className='text-foreground font-mono text-sm font-semibold tabular-nums'>
             {formatFixedPrice(
@@ -608,7 +648,18 @@ function GroupPricingSection(props: {
   )
 
   const isTokenBased = isTokenBasedModel(props.model)
+  const isPerSecond = props.model.billing_mode === 'per_second'
   const tokenUnitLabel = props.tokenUnit === 'K' ? '1K' : '1M'
+  const resolutionPriceRows = isPerSecond
+    ? getPerSecondResolutionPrices(
+        props.model,
+        '_base',
+        showRechargePrice,
+        props.priceRate,
+        props.usdExchangeRate,
+        { _base: 1 }
+      )
+    : []
 
   const extraPriceTypes = useMemo(() => {
     const types: { label: string; type: PriceType }[] = []
@@ -794,6 +845,17 @@ function GroupPricingSection(props: {
                     </TableHead>
                   ))}
                 </>
+              ) : isPerSecond ? (
+                <>
+                  {resolutionPriceRows.map((item) => (
+                    <TableHead
+                      key={item.key}
+                      className={`${thClass} text-right`}
+                    >
+                      {item.label}
+                    </TableHead>
+                  ))}
+                </>
               ) : (
                 <TableHead className={`${thClass} text-right`}>
                   {t('Price')}
@@ -853,6 +915,24 @@ function GroupPricingSection(props: {
                             props.usdExchangeRate,
                             props.groupRatio
                           )}
+                        </TableCell>
+                      ))}
+                    </>
+                  ) : isPerSecond ? (
+                    <>
+                      {getPerSecondResolutionPrices(
+                        props.model,
+                        group,
+                        showRechargePrice,
+                        props.priceRate,
+                        props.usdExchangeRate,
+                        props.groupRatio
+                      ).map((item) => (
+                        <TableCell
+                          key={item.key}
+                          className='py-2.5 text-right font-mono'
+                        >
+                          {item.formatted}
                         </TableCell>
                       ))}
                     </>

@@ -25,7 +25,12 @@ import {
 
 export const PAGE_SIZE = 10;
 export const PRICE_SUFFIX = '$/1M tokens';
+export const PER_SECOND_PRICE_SUFFIX = '$/秒';
 const EMPTY_CANDIDATE_MODEL_NAMES = [];
+export const PER_SECOND_RESOLUTION_ROWS = [
+  { key: 'resolution-720P', label: '720P' },
+  { key: 'resolution-1080P', label: '1080P' },
+];
 
 const EMPTY_MODEL = {
   name: '',
@@ -40,6 +45,8 @@ const EMPTY_MODEL = {
   imagePrice: '',
   audioInputPrice: '',
   audioOutputPrice: '',
+  perSecondPrices: {},
+  perSecondMultipliers: {},
   billingExpr: '',
   requestRuleExpr: '',
   rawRatios: {
@@ -107,6 +114,40 @@ const ratioToBasePrice = (ratio) => {
   return formatNumber(num * 2);
 };
 
+const createPerSecondPrices = (fixedPrice, multipliers = {}) => {
+  const basePrice = toNumberOrNull(fixedPrice);
+  return Object.fromEntries(
+    PER_SECOND_RESOLUTION_ROWS.map(({ key }) => {
+      const multiplier = toNumberOrNull(multipliers[key]);
+      if (key === 'resolution-720P' && basePrice !== null && multiplier === null) {
+        return [key, formatNumber(basePrice)];
+      }
+      if (basePrice === null || multiplier === null) {
+        return [key, ''];
+      }
+      return [key, formatNumber(basePrice * multiplier)];
+    }),
+  );
+};
+
+const derivePerSecondMultipliers = (fixedPrice, prices = {}) => {
+  const basePrice = toNumberOrNull(fixedPrice);
+  if (basePrice === null || basePrice <= 0) {
+    return {};
+  }
+  const multipliers = {};
+  Object.entries(prices).forEach(([key, value]) => {
+    const price = toNumberOrNull(value);
+    if (price !== null && price > 0) {
+      multipliers[key] = toNormalizedNumber(price / basePrice);
+    }
+  });
+  if (multipliers['resolution-720P'] === undefined) {
+    multipliers['resolution-720P'] = 1;
+  }
+  return multipliers;
+};
+
 const normalizeCompletionRatioMeta = (rawMeta) => {
   if (!rawMeta || typeof rawMeta !== 'object' || Array.isArray(rawMeta)) {
     return {
@@ -123,6 +164,12 @@ const normalizeCompletionRatioMeta = (rawMeta) => {
 
 const buildModelState = (name, sourceMaps) => {
   const billingMode = sourceMaps.ModelBillingMode?.[name];
+  const fixedPrice = toNumericString(sourceMaps.ModelPrice[name]);
+  const perSecondMultipliers =
+    sourceMaps.PerSecondMultipliers?.[name] &&
+    typeof sourceMaps.PerSecondMultipliers[name] === 'object'
+      ? sourceMaps.PerSecondMultipliers[name]
+      : {};
   if (billingMode === 'tiered_expr') {
     const fullBillingExpr = sourceMaps.ModelBillingExpr?.[name] || '';
     const { billingExpr, requestRuleExpr } =
@@ -133,6 +180,20 @@ const buildModelState = (name, sourceMaps) => {
       billingMode: 'tiered_expr',
       billingExpr,
       requestRuleExpr,
+      perSecondPrices: createPerSecondPrices(fixedPrice, perSecondMultipliers),
+      perSecondMultipliers,
+      rawRatios: { ...EMPTY_MODEL.rawRatios },
+      hasConflict: false,
+    };
+  }
+  if (billingMode === 'per_second') {
+    return {
+      ...EMPTY_MODEL,
+      name,
+      billingMode: 'per_second',
+      fixedPrice,
+      perSecondPrices: createPerSecondPrices(fixedPrice, perSecondMultipliers),
+      perSecondMultipliers,
       rawRatios: { ...EMPTY_MODEL.rawRatios },
       hasConflict: false,
     };
@@ -150,7 +211,6 @@ const buildModelState = (name, sourceMaps) => {
   const audioCompletionRatio = toNumericString(
     sourceMaps.AudioCompletionRatio[name],
   );
-  const fixedPrice = toNumericString(sourceMaps.ModelPrice[name]);
   const inputPrice = ratioToBasePrice(modelRatio);
   const inputPriceNumber = toNumberOrNull(inputPrice);
   const audioInputPrice =
@@ -199,6 +259,8 @@ const buildModelState = (name, sourceMaps) => {
       toNumberOrNull(audioInputPrice) !== null && hasValue(audioCompletionRatio)
         ? formatNumber(Number(audioInputPrice) * Number(audioCompletionRatio))
         : '',
+    perSecondPrices: createPerSecondPrices(fixedPrice, perSecondMultipliers),
+    perSecondMultipliers,
     requestRuleExpr: '',
     rawRatios: {
       modelRatio,
@@ -225,6 +287,7 @@ const buildModelState = (name, sourceMaps) => {
 
 export const isBasePricingUnset = (model) =>
   model.billingMode !== 'tiered_expr' &&
+  model.billingMode !== 'per_second' &&
   !hasValue(model.fixedPrice) && !hasValue(model.inputPrice);
 
 export const getModelWarnings = (model, t) => {
@@ -307,6 +370,10 @@ export const buildSummaryText = (model, t) => {
     return `${t('按次')} $${model.fixedPrice} / ${t('次')}${requestRuleSuffix}`;
   }
 
+  if (model.billingMode === 'per_second' && hasValue(model.fixedPrice)) {
+    return `${t('按秒')} $${model.fixedPrice} / ${t('秒')}`;
+  }
+
   if (hasValue(model.inputPrice)) {
     const extraCount = [
       model.completionPrice,
@@ -346,7 +413,7 @@ const serializeModel = (model, t) => {
     AudioCompletionRatio: null,
   };
 
-  if (model.billingMode === 'per-request') {
+  if (model.billingMode === 'per-request' || model.billingMode === 'per_second') {
     if (hasValue(model.fixedPrice)) {
       result.ModelPrice = toNormalizedNumber(model.fixedPrice);
     }
@@ -452,6 +519,17 @@ const serializeModel = (model, t) => {
   return result;
 };
 
+const serializePerSecondMultipliers = (model) => {
+  if (model.billingMode !== 'per_second') {
+    return null;
+  }
+  const multipliers = derivePerSecondMultipliers(
+    model.fixedPrice,
+    model.perSecondPrices,
+  );
+  return Object.keys(multipliers).length > 0 ? multipliers : null;
+};
+
 export const buildPreviewRows = (model, t) => {
   if (!model) return [];
   const finalBillingExpr = combineBillingExpr(
@@ -496,6 +574,28 @@ export const buildPreviewRows = (model, t) => {
       },
     ];
     return rows;
+  }
+
+  if (model.billingMode === 'per_second') {
+    return [
+      {
+        key: 'BillingMode',
+        label: 'ModelBillingMode',
+        value: 'per_second',
+      },
+      {
+        key: 'ModelPrice',
+        label: 'ModelPrice',
+        value: hasValue(model.fixedPrice) ? model.fixedPrice : t('空'),
+      },
+      ...PER_SECOND_RESOLUTION_ROWS.map(({ key, label }) => ({
+        key,
+        label,
+        value: hasValue(model.perSecondPrices?.[key])
+          ? `$${model.perSecondPrices[key]}`
+          : t('空'),
+      })),
+    ];
   }
 
   const inputPrice = toNumberOrNull(model.inputPrice);
@@ -648,6 +748,9 @@ export function useModelPricingEditorState({
       AudioCompletionRatio: parseOptionJSON(options.AudioCompletionRatio),
       ModelBillingMode: parseOptionJSON(options['billing_setting.billing_mode']),
       ModelBillingExpr: parseOptionJSON(options['billing_setting.billing_expr']),
+      PerSecondMultipliers: parseOptionJSON(
+        options['billing_setting.per_second_multipliers'],
+      ),
     };
 
     const names = new Set([
@@ -663,6 +766,7 @@ export function useModelPricingEditorState({
       ...Object.keys(sourceMaps.AudioCompletionRatio),
       ...Object.keys(sourceMaps.ModelBillingMode),
       ...Object.keys(sourceMaps.ModelBillingExpr),
+      ...Object.keys(sourceMaps.PerSecondMultipliers),
     ]);
 
     const nextModels = Array.from(names)
@@ -872,6 +976,20 @@ export function useModelPricingEditorState({
     });
   };
 
+  const handlePerSecondPriceChange = (resolutionKey, value) => {
+    if (!selectedModel || !NUMERIC_INPUT_REGEX.test(value)) {
+      return;
+    }
+
+    upsertModel(selectedModel.name, (model) => ({
+      ...model,
+      perSecondPrices: {
+        ...(model.perSecondPrices || {}),
+        [resolutionKey]: value,
+      },
+    }));
+  };
+
   const handleBillingModeChange = (value) => {
     if (!selectedModel) return;
     upsertModel(selectedModel.name, (model) => {
@@ -971,6 +1089,10 @@ export function useModelPricingEditorState({
           imagePrice: selectedModel.imagePrice,
           audioInputPrice: selectedModel.audioInputPrice,
           audioOutputPrice: selectedModel.audioOutputPrice,
+          perSecondPrices: { ...(selectedModel.perSecondPrices || {}) },
+          perSecondMultipliers: {
+            ...(selectedModel.perSecondMultipliers || {}),
+          },
           billingExpr: selectedModel.billingExpr || '',
           requestRuleExpr: selectedModel.requestRuleExpr || '',
         };
@@ -1037,6 +1159,7 @@ export function useModelPricingEditorState({
       const tieredOutput = {
         'billing_setting.billing_mode': {},
         'billing_setting.billing_expr': {},
+        'billing_setting.per_second_multipliers': {},
       };
 
       for (const model of models) {
@@ -1048,6 +1171,13 @@ export function useModelPricingEditorState({
           if (finalBillingExpr) {
             tieredOutput['billing_setting.billing_mode'][model.name] = 'tiered_expr';
             tieredOutput['billing_setting.billing_expr'][model.name] = finalBillingExpr;
+          }
+        } else if (model.billingMode === 'per_second' && hasValue(model.fixedPrice)) {
+          tieredOutput['billing_setting.billing_mode'][model.name] = 'per_second';
+          const multipliers = serializePerSecondMultipliers(model);
+          if (multipliers) {
+            tieredOutput['billing_setting.per_second_multipliers'][model.name] =
+              multipliers;
           }
         }
 
@@ -1122,6 +1252,7 @@ export function useModelPricingEditorState({
     isOptionalFieldEnabled,
     handleOptionalFieldToggle,
     handleNumericFieldChange,
+    handlePerSecondPriceChange,
     handleBillingModeChange,
     handleBillingExprChange,
     handleRequestRuleExprChange,

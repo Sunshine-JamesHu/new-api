@@ -44,6 +44,7 @@ export type PricingModel = {
   image_ratio?: number | null
   audio_ratio?: number | null
   audio_completion_ratio?: number | null
+  per_second_multipliers?: Record<string, number>
   enable_groups: string[]
   tags?: string
   supported_endpoint_types?: string[]

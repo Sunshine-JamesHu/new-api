@@ -36,6 +36,7 @@ import {
   FieldDescription,
   FieldGroup,
   FieldLabel,
+  FieldTitle,
 } from '@/components/ui/field'
 import {
   Form,
@@ -90,7 +91,8 @@ type ModelPricingFormValues = z.infer<
   ReturnType<typeof createModelPricingSchema>
 >
 
-type PricingMode = 'per-token' | 'per-request' | 'tiered_expr'
+type PricingMode = 'per-token' | 'per-request' | 'per_second' | 'tiered_expr'
+type PerSecondMultipliers = Record<string, number>
 type LaneKey =
   | 'completion'
   | 'cache'
@@ -112,6 +114,7 @@ export type ModelRatioData = {
   billingMode?: PricingMode
   billingExpr?: string
   requestRuleExpr?: string
+  perSecondMultipliers?: PerSecondMultipliers
 }
 
 type ModelPricingSheetProps = {
@@ -156,6 +159,11 @@ const EMPTY_LANE_ENABLED: Record<LaneKey, boolean> = {
   audioInput: false,
   audioOutput: false,
 }
+
+const PER_SECOND_RESOLUTION_ROWS = [
+  { key: 'resolution-720P', label: '720P' },
+  { key: 'resolution-1080P', label: '1080P' },
+] as const
 
 const ratioFieldByLane: Record<LaneKey, keyof ModelPricingFormValues> = {
   completion: 'completionRatio',
@@ -222,6 +230,41 @@ function toNumberOrNull(value: unknown): number | null {
   return Number.isFinite(num) ? num : null
 }
 
+function createInitialPerSecondPrices(
+  data?: ModelRatioData | null
+): Record<string, string> {
+  const basePrice = toNumberOrNull(data?.price)
+  const multipliers = data?.perSecondMultipliers || {}
+  return Object.fromEntries(
+    PER_SECOND_RESOLUTION_ROWS.map(({ key }) => {
+      const multiplier = toNumberOrNull(multipliers[key])
+      if (basePrice === null || multiplier === null) return [key, '']
+      return [key, formatPricingNumber(basePrice * multiplier)]
+    })
+  )
+}
+
+function derivePerSecondMultipliers(
+  basePrice: string,
+  prices: Record<string, string>
+): PerSecondMultipliers {
+  const base = toNumberOrNull(basePrice)
+  if (base === null || base <= 0) return {}
+  const multipliers = Object.fromEntries(
+    Object.entries(prices)
+      .map(([key, value]) => [key, toNumberOrNull(value)] as const)
+      .filter(([, value]) => value !== null && value > 0)
+      .map(([key, value]) => [
+        key,
+        Number(formatPricingNumber(value! / base)),
+      ])
+  )
+  if (multipliers['resolution-720P'] === undefined) {
+    multipliers['resolution-720P'] = 1
+  }
+  return multipliers
+}
+
 function ratioToBasePrice(ratio: unknown): string {
   const num = toNumberOrNull(ratio)
   if (num === null) return ''
@@ -275,6 +318,7 @@ function createInitialLaneState(data?: ModelRatioData | null) {
 
 function getModeLabel(mode: PricingMode) {
   if (mode === 'per-request') return 'Per-request'
+  if (mode === 'per_second') return 'Per-second'
   if (mode === 'tiered_expr') return 'Expression'
   return 'Per-token'
 }
@@ -283,6 +327,7 @@ function getModeBadgeVariant(
   mode: PricingMode
 ): 'default' | 'secondary' | 'outline' {
   if (mode === 'per-request') return 'secondary'
+  if (mode === 'per_second') return 'secondary'
   if (mode === 'tiered_expr') return 'default'
   return 'outline'
 }
@@ -295,6 +340,7 @@ function buildPreviewRows(
   promptPrice: string,
   lanePrices: Record<LaneKey, string>,
   laneEnabled: Record<LaneKey, boolean>,
+  perSecondPrices: Record<string, string>,
   t: (key: string) => string
 ): PreviewRow[] {
   if (mode === 'tiered_expr') {
@@ -317,6 +363,22 @@ function buildPreviewRows(
         label: 'ModelPrice',
         value: values.price || t('Empty'),
       },
+    ]
+  }
+
+  if (mode === 'per_second') {
+    return [
+      { key: 'mode', label: 'BillingMode', value: 'per_second' },
+      {
+        key: 'price',
+        label: 'ModelPrice',
+        value: values.price || t('Empty'),
+      },
+      ...PER_SECOND_RESOLUTION_ROWS.map(({ key, label }) => ({
+        key,
+        label,
+        value: perSecondPrices[key] ? `$${perSecondPrices[key]}` : t('Empty'),
+      })),
     ]
   }
 
@@ -432,6 +494,9 @@ export function ModelPricingEditorPanel({
   })
   const [billingExpr, setBillingExpr] = useState('')
   const [requestRuleExpr, setRequestRuleExpr] = useState('')
+  const [perSecondPrices, setPerSecondPrices] = useState<
+    Record<string, string>
+  >({})
   const [previewOpen, setPreviewOpen] = useState(true)
   const isEditMode = !!editData
 
@@ -468,6 +533,8 @@ export function ModelPricingEditorPanel({
       setPricingMode(
         editData.billingMode === 'tiered_expr'
           ? 'tiered_expr'
+          : editData.billingMode === 'per_second'
+            ? 'per_second'
           : editData.price
             ? 'per-request'
             : 'per-token'
@@ -494,6 +561,7 @@ export function ModelPricingEditorPanel({
     setPromptPrice(nextLaneState.promptPrice)
     setLanePrices(nextLaneState.prices)
     setLaneEnabled(nextLaneState.enabled)
+    setPerSecondPrices(createInitialPerSecondPrices(editData))
     setPreviewOpen(true)
   }, [editData, form])
 
@@ -609,6 +677,11 @@ export function ModelPricingEditorPanel({
     }
   }
 
+  const handlePerSecondPriceChange = (key: string, value: string) => {
+    if (!numericDraftRegex.test(value)) return
+    setPerSecondPrices((previous) => ({ ...previous, [key]: value }))
+  }
+
   const handleModeChange = (value: string) => {
     const nextMode = value as PricingMode
     setPricingMode(nextMode)
@@ -628,12 +701,14 @@ export function ModelPricingEditorPanel({
         promptPrice,
         lanePrices,
         laneEnabled,
+        perSecondPrices,
         t
       ),
     [
       billingExpr,
       laneEnabled,
       lanePrices,
+      perSecondPrices,
       pricingMode,
       promptPrice,
       requestRuleExpr,
@@ -730,6 +805,13 @@ export function ModelPricingEditorPanel({
       data.requestRuleExpr = requestRuleExpr
     }
 
+    if (pricingMode === 'per_second') {
+      data.perSecondMultipliers = derivePerSecondMultipliers(
+        values.price || '',
+        perSecondPrices
+      )
+    }
+
     onSave(data)
     form.reset()
     onCancel?.()
@@ -803,10 +885,13 @@ export function ModelPricingEditorPanel({
               />
 
               <Tabs value={pricingMode} onValueChange={handleModeChange}>
-                <TabsList className='grid w-full grid-cols-3'>
+                <TabsList className='grid w-full grid-cols-4'>
                   <TabsTrigger value='per-token'>{t('Per-token')}</TabsTrigger>
                   <TabsTrigger value='per-request'>
                     {t('Per-request')}
+                  </TabsTrigger>
+                  <TabsTrigger value='per_second'>
+                    {t('Per-second')}
                   </TabsTrigger>
                   <TabsTrigger value='tiered_expr'>
                     {t('Expression')}
@@ -893,6 +978,74 @@ export function ModelPricingEditorPanel({
                       </FormItem>
                     )}
                   />
+                </TabsContent>
+
+                <TabsContent
+                  value='per_second'
+                  className='flex flex-col gap-5'
+                >
+                  <FieldGroup>
+                    <FormField
+                      control={form.control}
+                      name='price'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Base per-second price')}</FormLabel>
+                          <FormControl>
+                            <InputGroup>
+                              <InputGroupAddon>$</InputGroupAddon>
+                              <InputGroupInput
+                                inputMode='decimal'
+                                placeholder='0.01'
+                                {...field}
+                                onChange={(event) => {
+                                  const value = event.target.value
+                                  if (numericDraftRegex.test(value)) {
+                                    field.onChange(value)
+                                  }
+                                }}
+                              />
+                              <InputGroupAddon align='inline-end'>
+                                {t('per second')}
+                              </InputGroupAddon>
+                            </InputGroup>
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Base USD cost per generated video second, usually the 720P price.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <Field>
+                      <FieldLabel>{t('Resolution pricing')}</FieldLabel>
+                      <FieldDescription>
+                        {t(
+                          'Optional per-second prices for request resolution factors.'
+                        )}
+                      </FieldDescription>
+                      <div className='grid gap-3 sm:grid-cols-2'>
+                        {PER_SECOND_RESOLUTION_ROWS.map(({ key, label }) => (
+                          <Field key={key} className='rounded-lg border p-3'>
+                            <FieldTitle>{label}</FieldTitle>
+                            <PriceInput
+                              value={perSecondPrices[key] || ''}
+                              placeholder={label === '720P' ? '0.9' : '1.6'}
+                              onChange={(value) =>
+                                handlePerSecondPriceChange(key, value)
+                              }
+                            />
+                            <FieldDescription>
+                              {t('USD price per generated video second.')}
+                            </FieldDescription>
+                          </Field>
+                        ))}
+                      </div>
+                    </Field>
+                  </FieldGroup>
                 </TabsContent>
 
                 <TabsContent
