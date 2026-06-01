@@ -70,3 +70,9 @@ func TestTaskSubmitReqUnmarshalDurationAndSecondsVariants(t *testing.T) {
 		})
 	}
 }
+
+func TestTaskSubmitReqUnmarshalResolution(t *testing.T) {
+	var req TaskSubmitReq
+	require.NoError(t, commonjson.Unmarshal([]byte(`{"prompt":"p","model":"m","resolution":"1080p"}`), &req))
+	require.Equal(t, "1080p", req.Resolution)
+}

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
@@ -50,11 +51,34 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskError {
-	return relaycommon.ValidateMultipartDirect(c, info)
+	if taskErr := relaycommon.ValidateMetadataPassthroughTaskRequest(c, info, constant.TaskActionTextGenerate); taskErr != nil {
+		return taskErr
+	}
+	req, err := relaycommon.GetTaskRequest(c)
+	if err != nil {
+		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
+	}
+	if strings.TrimSpace(req.Model) == "" {
+		return service.TaskErrorWrapperLocal(fmt.Errorf("model is required"), "missing_model", http.StatusBadRequest)
+	}
+	if _, err = taskcommon.ResolveVideoBillingResolution(req, "1080P"); err != nil {
+		return service.TaskErrorWrapperLocal(err, "invalid_resolution", http.StatusBadRequest)
+	}
+	info.Action = happyHorseActionForModel(req.Model)
+	return nil
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	return fmt.Sprintf("%s%s", strings.TrimRight(a.baseURL, "/"), videoSynthesisPath), nil
+}
+
+func happyHorseActionForModel(model string) string {
+	switch {
+	case strings.Contains(model, "-i2v"), strings.Contains(model, "-r2v"), strings.Contains(model, "video-edit"):
+		return constant.TaskActionGenerate
+	default:
+		return constant.TaskActionTextGenerate
+	}
 }
 
 func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
@@ -89,26 +113,17 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	if err != nil {
 		return nil
 	}
-	req, err := convertToRequest(info, taskReq)
+	seconds := taskcommon.ResolveVideoBillingDuration(taskReq, 5)
+	otherRatios := map[string]float64{"seconds": float64(seconds)}
+	resolution, err := taskcommon.ResolveVideoBillingResolution(taskReq, "1080P")
 	if err != nil {
 		return nil
 	}
-	seconds := numberFromMap(req.Parameters, "duration")
-	if seconds <= 0 {
-		seconds = 5
-	}
-	otherRatios := map[string]float64{"seconds": float64(seconds)}
-	resolution := normalizeResolution(stringFromMap(req.Parameters, "resolution"))
-	if resolution == "" {
-		resolution = "1080P"
-	}
-	if resolution != "" {
-		key := fmt.Sprintf("resolution-%s", resolution)
-		if resolution == "1080P" {
-			otherRatios[key] = 1.6 / 0.9
-		} else {
-			otherRatios[key] = 1
-		}
+	key := fmt.Sprintf("resolution-%s", resolution)
+	if resolution == "1080P" {
+		otherRatios[key] = 1.6 / 0.9
+	} else {
+		otherRatios[key] = 1
 	}
 	applyConfiguredMultiplierFallbacks(info, otherRatios)
 	return otherRatios
@@ -227,6 +242,18 @@ type happyHorseRequest struct {
 	Model      string         `json:"model"`
 	Input      map[string]any `json:"input"`
 	Parameters map[string]any `json:"parameters"`
+	Extra      map[string]any `json:"-"`
+}
+
+func (r happyHorseRequest) MarshalJSON() ([]byte, error) {
+	out := map[string]any{}
+	for key, value := range r.Extra {
+		out[key] = value
+	}
+	out["model"] = r.Model
+	out["input"] = r.Input
+	out["parameters"] = r.Parameters
+	return common.Marshal(out)
 }
 
 func convertToRequest(info *relaycommon.RelayInfo, req relaycommon.TaskSubmitReq) (*happyHorseRequest, error) {
@@ -240,50 +267,17 @@ func convertToRequest(info *relaycommon.RelayInfo, req relaycommon.TaskSubmitReq
 	if upstreamModel == "" {
 		return nil, fmt.Errorf("model is required")
 	}
-	if _, err := validatedDuration(req); err != nil {
-		return nil, err
-	}
 
 	out := &happyHorseRequest{
 		Model:      upstreamModel,
 		Input:      map[string]any{},
 		Parameters: map[string]any{},
-	}
-	if req.Prompt != "" {
-		out.Input["prompt"] = req.Prompt
-	}
-	if req.Mode != "" {
-		out.Parameters["mode"] = req.Mode
-	}
-	if req.Size != "" {
-		applySize(req.Size, out.Parameters)
-	} else {
-		out.Parameters["resolution"] = "1080P"
-	}
-	if strings.Contains(upstreamModel, "-t2v") || strings.Contains(upstreamModel, "-r2v") {
-		out.Parameters["ratio"] = "16:9"
-	}
-	if duration, err := durationFromRequest(req); err != nil {
-		return nil, err
-	} else {
-		out.Parameters["duration"] = duration
-	}
-	out.Parameters["prompt_extend"] = true
-	out.Parameters["watermark"] = false
-
-	if images := imagesFromRequest(req); len(images) > 0 && !requestHasMedia(req) {
-		out.Input["media"] = requestMedia(upstreamModel, images)
+		Extra:      map[string]any{},
 	}
 	if req.Metadata != nil {
 		if err := applyMetadata(req.Metadata, out); err != nil {
 			return nil, err
 		}
-	}
-	if req.Input != nil {
-		mergeMap(out.Input, req.Input)
-	}
-	if req.Parameters != nil {
-		mergeMap(out.Parameters, req.Parameters)
 	}
 	if modelValue, ok := stringMapValue(out.Input, "model"); ok && modelValue != "" && modelValue != upstreamModel {
 		return nil, errors.New("can't change model with input")
@@ -293,6 +287,12 @@ func convertToRequest(info *relaycommon.RelayInfo, req relaycommon.TaskSubmitReq
 	}
 	delete(out.Input, "model")
 	delete(out.Parameters, "model")
+	out.Parameters["duration"] = taskcommon.ResolveVideoBillingDuration(req, 5)
+	resolution, err := taskcommon.ResolveVideoBillingResolution(req, "1080P")
+	if err != nil {
+		return nil, err
+	}
+	out.Parameters["resolution"] = resolution
 	return out, nil
 }
 
@@ -300,12 +300,18 @@ func applyMetadata(metadata map[string]any, out *happyHorseRequest) error {
 	if modelValue, ok := stringMapValue(metadata, "model"); ok && modelValue != "" && modelValue != out.Model {
 		return errors.New("can't change model with metadata")
 	}
+	for key, value := range metadata {
+		out.Extra[key] = value
+	}
 	if input, ok := mapValue(metadata, "input"); ok {
 		mergeMap(out.Input, input)
+		delete(out.Extra, "input")
 	}
 	if parameters, ok := mapValue(metadata, "parameters"); ok {
 		mergeMap(out.Parameters, parameters)
+		delete(out.Extra, "parameters")
 	}
+	delete(out.Extra, "model")
 	copyString(metadata, out.Input, "audio_url")
 	copyString(metadata, out.Input, "img_url")
 	copyString(metadata, out.Input, "image_url")
@@ -328,11 +334,6 @@ func applyMetadata(metadata map[string]any, out *happyHorseRequest) error {
 	copyString(metadata, out.Parameters, "mode")
 	copyString(metadata, out.Parameters, "shot_type")
 	copyAny(metadata, out.Parameters, "audio_setting")
-	if duration, err := durationFromAny(metadata["duration"]); err != nil {
-		return err
-	} else if duration > 0 {
-		out.Parameters["duration"] = duration
-	}
 	if videoURL, ok := stringMapValue(metadata, "video_url"); ok && videoURL != "" {
 		media := mediaFromAny(out.Input["media"])
 		media = append(media, map[string]any{"type": mediaTypeForURL(out.Model, videoURL), "url": videoURL})

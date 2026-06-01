@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
@@ -41,10 +42,9 @@ func TestConvertTextToVideoDefaults(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "happyhorse-1.0-t2v", req.Model)
-	require.Equal(t, "horse", req.Input["prompt"])
+	require.NotContains(t, req.Input, "prompt")
 	require.Equal(t, 5, req.Parameters["duration"])
 	require.Equal(t, "1080P", req.Parameters["resolution"])
-	require.Equal(t, "16:9", req.Parameters["ratio"])
 	require.NotContains(t, req.Input, "media")
 }
 
@@ -63,48 +63,103 @@ func TestConvertMediaModels(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req, err := convertToRequest(happyHorseRelayInfo("", "", false), relaycommon.TaskSubmitReq{
-				Model:  tt.model,
-				Prompt: "horse",
-				Images: tt.images,
+				Model: tt.model,
+				Metadata: map[string]any{
+					"media": func() []any {
+						media := make([]any, 0, len(tt.images))
+						for _, image := range tt.images {
+							media = append(media, map[string]any{"type": "reference_image", "url": image})
+						}
+						return media
+					}(),
+				},
 			})
 			require.NoError(t, err)
-			media, ok := req.Input["media"].([]map[string]any)
+			media, ok := req.Input["media"].([]any)
 			require.True(t, ok)
 			require.Len(t, media, len(tt.wantTypes))
-			for i, wantType := range tt.wantTypes {
-				require.Equal(t, wantType, media[i]["type"])
-				require.Equal(t, tt.images[i], media[i]["url"])
+			for i := range tt.wantTypes {
+				item := media[i].(map[string]any)
+				require.Equal(t, "reference_image", item["type"])
+				require.Equal(t, tt.images[i], item["url"])
 			}
+		})
+	}
+}
+
+func TestValidateSetsActionFromModel(t *testing.T) {
+	tests := []struct {
+		model      string
+		wantAction string
+	}{
+		{model: "happyhorse-1.0-t2v", wantAction: "textGenerate"},
+		{model: "happyhorse-1.0-i2v", wantAction: "generate"},
+		{model: "happyhorse-1.0-r2v", wantAction: "generate"},
+		{model: "happyhorse-1.0-video-edit", wantAction: "generate"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			c := happyHorseContext(`{"model":"` + tt.model + `","metadata":{"input":{"prompt":"p"}}}`)
+			info := happyHorseRelayInfo(tt.model, "", false)
+			taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(c, info)
+			require.Nil(t, taskErr)
+			require.Equal(t, tt.wantAction, info.Action)
 		})
 	}
 }
 
 func TestPreservesExplicitInputAndParametersIncludingZeroValues(t *testing.T) {
 	req, err := convertToRequest(happyHorseRelayInfo("", "", false), relaycommon.TaskSubmitReq{
-		Model:  "happyhorse-1.0-r2v",
-		Prompt: "outer prompt",
-		Images: []string{"https://example.com/compat.png"},
-		Input: map[string]any{
-			"prompt": "inner prompt",
-			"media": []any{
-				map[string]any{"type": "reference_image", "url": "https://example.com/ref.png"},
+		Model:    "happyhorse-1.0-r2v",
+		Prompt:   "outer prompt",
+		Images:   []string{"https://example.com/compat.png"},
+		Duration: 6,
+		Metadata: map[string]any{
+			"input": map[string]any{
+				"prompt": "inner prompt",
+				"media": []any{
+					map[string]any{"type": "reference_image", "url": "https://example.com/ref.png"},
+				},
+				"custom_empty_list": []any{},
 			},
-			"custom_empty_list": []any{},
-		},
-		Parameters: map[string]any{
-			"duration":  8,
-			"watermark": false,
-			"seed":      0,
-			"custom":    "kept",
+			"parameters": map[string]any{
+				"duration":  8,
+				"watermark": false,
+				"seed":      0,
+				"custom":    "kept",
+			},
 		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, "inner prompt", req.Input["prompt"])
 	require.Equal(t, []any{}, req.Input["custom_empty_list"])
-	require.Equal(t, 8, req.Parameters["duration"])
+	require.Equal(t, 6, req.Parameters["duration"])
 	require.Equal(t, false, req.Parameters["watermark"])
 	require.Equal(t, 0, req.Parameters["seed"])
 	require.Equal(t, "kept", req.Parameters["custom"])
+}
+
+func TestMetadataTopLevelUnknownFieldsArePassedThrough(t *testing.T) {
+	req, err := convertToRequest(happyHorseRelayInfo("", "", false), relaycommon.TaskSubmitReq{
+		Model:    "happyhorse-1.0-t2v",
+		Duration: 6,
+		Metadata: map[string]any{
+			"trace_id": "abc",
+			"vendor":   map[string]any{"nested": true},
+			"parameters": map[string]any{
+				"duration": 99,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	data, err := common.Marshal(req)
+	require.NoError(t, err)
+	require.Contains(t, string(data), `"trace_id":"abc"`)
+	require.Contains(t, string(data), `"vendor":{"nested":true}`)
+	require.Contains(t, string(data), `"duration":6`)
+	require.NotContains(t, string(data), `"duration":99`)
 }
 
 func TestBuildRequestBodyUsesMappedModelForLogic(t *testing.T) {
@@ -123,8 +178,8 @@ func TestBuildRequestBodyUsesMappedModelForLogic(t *testing.T) {
 	data, err := io.ReadAll(body)
 	require.NoError(t, err)
 	require.Contains(t, string(data), `"model":"happyhorse-1.0-i2v"`)
-	require.Contains(t, string(data), `"type":"first_frame"`)
-	require.Contains(t, string(data), `"resolution":"720P"`)
+	require.NotContains(t, string(data), `"type":"first_frame"`)
+	require.Contains(t, string(data), `"resolution":"1080P"`)
 }
 
 func TestHeaderEnablesOssResolve(t *testing.T) {
@@ -204,7 +259,19 @@ func TestEstimateBillingUsesDefaultDurationAndResolution(t *testing.T) {
 	require.InEpsilon(t, 1.6/0.9, ratios["resolution-1080P"], 0.000001)
 }
 
-func TestEstimateBillingParsesSecondsAndExplicitZeroFallback(t *testing.T) {
+func TestValidateRejectsInvalidResolution(t *testing.T) {
+	c := happyHorseContext(`{
+		"model":"happyhorse-1.0-t2v",
+		"prompt":"horse",
+		"resolution":"4K"
+	}`)
+	info := happyHorseRelayInfo("happyhorse-1.0-t2v", "", false)
+	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(c, info)
+	require.NotNil(t, taskErr)
+	require.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
+}
+
+func TestEstimateBillingUsesOuterDurationOnly(t *testing.T) {
 	withHappyHorseBillingConfig(t, map[string]string{
 		"billing_setting.billing_mode": `{"happyhorse-1.0-t2v":"per_second"}`,
 	})
@@ -224,22 +291,23 @@ func TestEstimateBillingParsesSecondsAndExplicitZeroFallback(t *testing.T) {
 			wantSeconds: 8,
 		},
 		{
-			name: "parameter zero falls back",
+			name: "metadata duration ignored",
 			body: `{
 				"model":"happyhorse-1.0-t2v",
 				"prompt":"horse",
-				"parameters":{"duration":0}
+				"duration":6,
+				"metadata":{"parameters":{"duration":11}}
 			}`,
-			wantSeconds: 5,
+			wantSeconds: 6,
 		},
 		{
-			name: "parameter duration wins",
+			name: "metadata duration without outer falls back",
 			body: `{
 				"model":"happyhorse-1.0-t2v",
 				"prompt":"horse",
-				"parameters":{"duration":11}
+				"metadata":{"parameters":{"duration":11}}
 			}`,
-			wantSeconds: 11,
+			wantSeconds: 5,
 		},
 	}
 

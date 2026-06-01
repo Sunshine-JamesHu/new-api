@@ -3,6 +3,9 @@ package taskcommon
 import (
 	"encoding/base64"
 	"fmt"
+	"math"
+	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -45,6 +48,42 @@ func DefaultInt(val, fallback int) int {
 	return val
 }
 
+// ResolveVideoBillingDuration returns the trusted billing duration from outer
+// request fields only. metadata/parameters are intentionally ignored.
+func ResolveVideoBillingDuration(req relaycommon.TaskSubmitReq, defaultSeconds int) int {
+	if req.Duration > 0 {
+		return req.Duration
+	}
+	if req.Seconds != "" {
+		if seconds, err := strconv.ParseFloat(strings.TrimSpace(req.Seconds), 64); err == nil && seconds > 0 {
+			return int(math.Ceil(seconds))
+		}
+	}
+	return defaultSeconds
+}
+
+// ResolveVideoBillingResolution normalizes the outer resolution billing tier.
+// Empty input falls back to defaultResolution. Only 720P and 1080P are accepted.
+func ResolveVideoBillingResolution(req relaycommon.TaskSubmitReq, defaultResolution string) (string, error) {
+	resolution := strings.TrimSpace(req.Resolution)
+	if resolution == "" {
+		resolution = defaultResolution
+	}
+	resolution = strings.ToUpper(resolution)
+	if resolution == "" {
+		return "", nil
+	}
+	if !strings.HasSuffix(resolution, "P") {
+		resolution += "P"
+	}
+	switch resolution {
+	case "720P", "1080P":
+		return resolution, nil
+	default:
+		return "", fmt.Errorf("invalid resolution: %s", req.Resolution)
+	}
+}
+
 // EncodeLocalTaskID encodes an upstream operation name to a URL-safe base64 string.
 // Used by Gemini/Vertex to store upstream names as task IDs.
 func EncodeLocalTaskID(name string) string {
@@ -64,6 +103,20 @@ func DecodeLocalTaskID(id string) (string, error) {
 // e.g., "https://your-server.com/v1/videos/task_xxxx/content"
 func BuildProxyURL(taskID string) string {
 	return fmt.Sprintf("%s/v1/videos/%s/content", system_setting.ServerAddress, taskID)
+}
+
+func ReqKeyFromTaskData(data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+	var payload map[string]any
+	if err := common.Unmarshal(data, &payload); err != nil {
+		return ""
+	}
+	if reqKey, ok := payload["req_key"].(string); ok {
+		return strings.TrimSpace(reqKey)
+	}
+	return ""
 }
 
 // Status-to-progress mapping constants for polling updates.
