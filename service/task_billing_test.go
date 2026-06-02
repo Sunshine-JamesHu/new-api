@@ -1,8 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"os"
 	"testing"
@@ -627,6 +630,59 @@ func (m *mockAdaptor) AdjustBillingOnComplete(_ *model.Task, _ *relaycommon.Task
 	return m.adjustReturn
 }
 
+type pollingMockAdaptor struct {
+	body        []byte
+	parseCalled bool
+}
+
+func (m *pollingMockAdaptor) Init(_ *relaycommon.RelayInfo) {}
+func (m *pollingMockAdaptor) FetchTask(string, string, map[string]any, string) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewReader(m.body)),
+	}, nil
+}
+func (m *pollingMockAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
+	m.parseCalled = true
+	return nil, errors.New("ParseTaskResult should not be called for New API task response")
+}
+func (m *pollingMockAdaptor) AdjustBillingOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) int {
+	return 0
+}
+
+func TestUpdateVideoSingleTaskPreservesNewAPIDataAndReqKey(t *testing.T) {
+	truncate(t)
+
+	task := makeTask(40, 40, 0, 0, BillingSourceWallet, 0)
+	task.TaskID = "task_public_newapi"
+	task.Action = "textGenerate"
+	task.PrivateData.UpstreamTaskID = "task_upstream_newapi"
+	task.Data = json.RawMessage(`{"code":10000,"req_key":"jimeng_t2v_v30","data":{"task_id":"task_upstream_newapi"}}`)
+	require.NoError(t, model.DB.Create(task).Error)
+
+	adaptor := &pollingMockAdaptor{body: []byte(`{
+		"code":"success",
+		"data":{
+			"task_id":"task_public_newapi",
+			"status":"SUCCESS",
+			"progress":"100%",
+			"data":{"code":10000,"data":{"status":"done","video_url":"https://example.com/newapi.mp4"}}
+		}
+	}`)}
+	ch := &model.Channel{Id: 40, Key: "sk-test"}
+	err := updateVideoSingleTask(context.Background(), adaptor, ch, "task_upstream_newapi", map[string]*model.Task{
+		"task_upstream_newapi": task,
+	})
+	require.NoError(t, err)
+	require.False(t, adaptor.parseCalled)
+
+	var saved model.Task
+	require.NoError(t, model.DB.First(&saved, task.ID).Error)
+	assert.Contains(t, string(saved.Data), `"req_key":"jimeng_t2v_v30"`)
+	assert.Contains(t, string(saved.Data), `"video_url":"https://example.com/newapi.mp4"`)
+	assert.NotContains(t, string(saved.Data), `"code":"success"`)
+}
+
 // ===========================================================================
 // PerCallBilling tests — settleTaskBillingOnComplete
 // ===========================================================================
@@ -740,4 +796,14 @@ func TestSettle_NonPerCall_AdaptorAdjustWorks(t *testing.T) {
 	log := getLastLog(t)
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
+}
+
+func TestPreserveTaskReqKey(t *testing.T) {
+	oldData := []byte(`{"code":10000,"req_key":"jimeng_t2v_v30","data":{"task_id":"upstream"}}`)
+	newData := []byte(`{"code":10000,"data":{"status":"generating","video_url":""}}`)
+
+	got := preserveTaskReqKey(oldData, newData)
+
+	assert.Contains(t, string(got), `"req_key":"jimeng_t2v_v30"`)
+	assert.Contains(t, string(got), `"status":"generating"`)
 }

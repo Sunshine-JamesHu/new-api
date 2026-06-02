@@ -2,6 +2,7 @@ package relay
 
 import (
 	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -37,6 +38,70 @@ func withRelayBillingConfig(t *testing.T, values map[string]string) {
 		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
 	})
 	require.NoError(t, config.GlobalConfig.LoadFromDB(values))
+}
+
+func TestRelayTaskSubmitJimengUsesMappedReqKeyAndMetadataPrompt(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service.InitHttpClient()
+
+	savedModelPrice := ratio_setting.ModelPrice2JSONString()
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"alias-jimeng":0.001}`))
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(savedModelPrice))
+	})
+
+	withRelayBillingConfig(t, map[string]string{
+		"billing_setting.billing_mode": `{"alias-jimeng":"per_second"}`,
+	})
+
+	var upstreamBody []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/jimeng/", r.URL.Path)
+		require.Equal(t, "CVSync2AsyncSubmitTask", r.URL.Query().Get("Action"))
+		require.Equal(t, "Bearer sk-jimeng", r.Header.Get("Authorization"))
+		var err error
+		upstreamBody, err = io.ReadAll(r.Body)
+		require.NoError(t, err)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":10000,"message":"Success","request_id":"req_1","data":{"task_id":"task_upstream"}}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	body := `{"model":"alias-jimeng","prompt":"outer ignored","duration":5,"metadata":{"prompt":"real prompt","seed":-1,"aspect_ratio":"16:9","frames":999}}`
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set("model_mapping", `{"alias-jimeng":"jimeng_t2v_v30"}`)
+	common.SetContextKey(c, constant.ContextKeyChannelType, constant.ChannelTypeJimeng)
+	common.SetContextKey(c, constant.ContextKeyChannelId, 999)
+	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, upstream.URL)
+	common.SetContextKey(c, constant.ContextKeyChannelKey, "sk-jimeng")
+	common.SetContextKey(c, constant.ContextKeyOriginalModel, "alias-jimeng")
+	common.SetContextKey(c, constant.ContextKeyUserId, 1)
+	common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(c, constant.ContextKeyUsingGroup, "default")
+	common.SetContextKey(c, constant.ContextKeyUserQuota, 1000000)
+	common.SetContextKey(c, constant.ContextKeyTokenId, 1)
+	common.SetContextKey(c, constant.ContextKeyTokenKey, "jimeng-billing-token")
+
+	info, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
+	require.NoError(t, err)
+	info.Billing = testBillingSession{}
+	result, taskErr := RelayTaskSubmit(c, info)
+	require.Nil(t, taskErr)
+	require.NotNil(t, result)
+
+	var payload map[string]any
+	require.NoError(t, common.Unmarshal(upstreamBody, &payload))
+	require.Equal(t, "jimeng_t2v_v30", payload["req_key"])
+	require.Equal(t, "real prompt", payload["prompt"])
+	require.Equal(t, float64(121), payload["frames"])
+	require.Equal(t, float64(-1), payload["seed"])
+	require.Equal(t, "16:9", payload["aspect_ratio"])
+	require.NotContains(t, string(upstreamBody), "outer ignored")
+	require.NotContains(t, string(upstreamBody), "alias-jimeng")
+	require.Contains(t, string(result.TaskData), `"req_key":"jimeng_t2v_v30"`)
 }
 
 func TestApplyConfiguredPerSecondMultipliersOverridesRequestFactors(t *testing.T) {

@@ -377,6 +377,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	logger.LogDebug(ctx, "updateVideoSingleTask response: %s", responseBody)
 
 	snap := task.Snapshot()
+	oldData := task.Data
 
 	taskResult := &relaycommon.TaskInfo{}
 	// try parse as New API response format
@@ -392,9 +393,11 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		task.Data = t.Data
 	} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
 		return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
+	} else {
+		task.Data = redactVideoResponseBody(responseBody)
 	}
 
-	task.Data = redactVideoResponseBody(responseBody)
+	task.Data = preserveTaskReqKey(oldData, task.Data)
 
 	logger.LogDebug(ctx, "updateVideoSingleTask taskResult: %+v", taskResult)
 
@@ -527,6 +530,23 @@ func redactVideoResponseBody(body []byte) []byte {
 		return body
 	}
 	return b
+}
+
+func preserveTaskReqKey(oldData, newData []byte) []byte {
+	reqKey := taskcommon.ReqKeyFromTaskData(oldData)
+	if reqKey == "" || taskcommon.ReqKeyFromTaskData(newData) != "" {
+		return newData
+	}
+	var payload map[string]any
+	if err := common.Unmarshal(newData, &payload); err != nil {
+		return newData
+	}
+	payload["req_key"] = reqKey
+	data, err := common.Marshal(payload)
+	if err != nil {
+		return newData
+	}
+	return data
 }
 
 func truncateBase64(s string) string {

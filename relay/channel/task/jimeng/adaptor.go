@@ -21,6 +21,7 @@ import (
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/channel"
 	taskcommon "github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -31,16 +32,6 @@ import (
 // ============================
 // Request / Response structures
 // ============================
-
-type requestPayload struct {
-	ReqKey           string   `json:"req_key"`
-	BinaryDataBase64 []string `json:"binary_data_base64,omitempty"`
-	ImageUrls        []string `json:"image_urls,omitempty"`
-	Prompt           string   `json:"prompt,omitempty"`
-	Seed             int64    `json:"seed"`
-	AspectRatio      string   `json:"aspect_ratio"`
-	Frames           int      `json:"frames,omitempty"`
-}
 
 type responsePayload struct {
 	Code      int    `json:"code"`
@@ -109,7 +100,50 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	if strings.TrimSpace(req.Model) == "" {
 		return service.TaskErrorWrapperLocal(fmt.Errorf("model/req_key is required"), "missing_model", http.StatusBadRequest)
 	}
+	reqKey := resolveJimengReqKey(resolveMappedJimengModel(c, req.Model), req.Metadata)
+	action := jimengActionForReqKey(reqKey)
+	info.Action = action
+	if action == constant.TaskActionTextGenerate && !metadataHasString(req.Metadata, "prompt") {
+		return service.TaskErrorWrapperLocal(fmt.Errorf("metadata.prompt is required for jimeng text-to-video"), "missing_prompt", http.StatusBadRequest)
+	}
 	return nil
+}
+
+func jimengActionForReqKey(reqKey string) string {
+	if strings.Contains(strings.ToLower(reqKey), "t2v") {
+		return constant.TaskActionTextGenerate
+	}
+	return constant.TaskActionGenerate
+}
+
+func resolveMappedJimengModel(c *gin.Context, model string) string {
+	model = strings.TrimSpace(model)
+	modelMapping := strings.TrimSpace(c.GetString("model_mapping"))
+	if model == "" || modelMapping == "" || modelMapping == "{}" {
+		return model
+	}
+	modelMap := map[string]string{}
+	if err := common.Unmarshal([]byte(modelMapping), &modelMap); err != nil {
+		return model
+	}
+	current := model
+	visited := map[string]bool{current: true}
+	for {
+		next := strings.TrimSpace(modelMap[current])
+		if next == "" {
+			return current
+		}
+		if visited[next] {
+			return next
+		}
+		visited[next] = true
+		current = next
+	}
+}
+
+func metadataHasString(metadata map[string]any, key string) bool {
+	value, ok := metadata[key].(string)
+	return ok && strings.TrimSpace(value) != ""
 }
 
 // BuildRequestURL constructs the upstream URL.
@@ -146,7 +180,23 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return nil, err
 	}
+	logger.LogInfo(c, fmt.Sprintf("jimeng submit request: %s", jimengSubmitLogSummary(body)))
 	return bytes.NewReader(data), nil
+}
+
+func jimengSubmitLogSummary(body map[string]any) string {
+	summary := map[string]any{
+		"req_key":             body["req_key"],
+		"frames":              body["frames"],
+		"has_prompt":          metadataHasString(body, "prompt"),
+		"binary_data_base64s": jimengFieldLen(body["binary_data_base64"]),
+		"image_urls":          jimengFieldLen(body["image_urls"]),
+	}
+	data, err := common.Marshal(summary)
+	if err != nil {
+		return fmt.Sprintf("req_key=%v frames=%v", body["req_key"], body["frames"])
+	}
+	return string(data)
 }
 
 func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
@@ -380,6 +430,9 @@ func hmacSHA256(key []byte, data []byte) []byte {
 
 func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, info *relaycommon.RelayInfo) (map[string]any, error) {
 	reqKey := strings.TrimSpace(req.Model)
+	if info != nil && strings.TrimSpace(info.UpstreamModelName) != "" {
+		reqKey = strings.TrimSpace(info.UpstreamModelName)
+	}
 	if reqKey == "" {
 		return nil, fmt.Errorf("model/req_key is required")
 	}
@@ -420,19 +473,24 @@ func resolveJimengReqKey(reqKey string, payload map[string]any) string {
 func jimengPayloadImageLen(payload map[string]any) int {
 	maxLen := 0
 	for _, key := range []string{"binary_data_base64", "image_urls"} {
-		switch value := payload[key].(type) {
-		case []string:
-			if len(value) > maxLen {
-				maxLen = len(value)
-			}
-		case []any:
-			if len(value) > maxLen {
-				maxLen = len(value)
-			}
+		if length := jimengFieldLen(payload[key]); length > maxLen {
+			maxLen = length
 		}
 	}
 	return maxLen
 }
+
+func jimengFieldLen(value any) int {
+	switch v := value.(type) {
+	case []string:
+		return len(v)
+	case []any:
+		return len(v)
+	default:
+		return 0
+	}
+}
+
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
 	resTask := responseTask{}
 	if err := common.Unmarshal(respBody, &resTask); err != nil {
@@ -451,6 +509,9 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	case "in_queue":
 		taskResult.Status = model.TaskStatusQueued
 		taskResult.Progress = "10%"
+	case "generating":
+		taskResult.Status = model.TaskStatusInProgress
+		taskResult.Progress = "30%"
 	case "done":
 		taskResult.Status = model.TaskStatusSuccess
 		taskResult.Progress = "100%"
