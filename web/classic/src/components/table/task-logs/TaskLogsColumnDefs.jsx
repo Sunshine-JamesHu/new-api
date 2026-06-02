@@ -417,13 +417,17 @@ export const getTaskLogsColumns = ({
         const isSuccess = record.status === 'SUCCESS';
         const resultUrl = record.result_url;
         const hasResultUrl = typeof resultUrl === 'string' && /^https?:\/\//.test(resultUrl);
-        if (isSuccess && isVideoTask && hasResultUrl) {
+        const videoUrl =
+          String(record.platform) === '51' && record.task_id
+            ? `/v1/videos/${encodeURIComponent(record.task_id)}/content`
+            : resultUrl;
+        if (isSuccess && isVideoTask && hasResultUrl && videoUrl) {
           return (
             <a
               href='#'
               onClick={(e) => {
                 e.preventDefault();
-                openVideoModal(resultUrl);
+                openVideoModal(videoUrl);
               }}
             >
               {t('点击预览视频')}

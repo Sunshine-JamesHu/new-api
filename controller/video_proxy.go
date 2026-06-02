@@ -113,6 +113,9 @@ func VideoProxy(c *gin.Context) {
 		// Video URL is stored in PrivateData.ResultURL (fallback to FailReason for old data)
 		videoURL = task.GetResultURL()
 	}
+	if rangeHeader := c.GetHeader("Range"); strings.TrimSpace(rangeHeader) != "" {
+		req.Header.Set("Range", rangeHeader)
+	}
 
 	videoURL = strings.TrimSpace(videoURL)
 	if videoURL == "" {
@@ -130,7 +133,7 @@ func VideoProxy(c *gin.Context) {
 	}
 
 	fetchSetting := system_setting.GetFetchSetting()
-	if err := common.ValidateURLWithFetchSetting(videoURL, fetchSetting.EnableSSRFProtection, fetchSetting.AllowPrivateIp, fetchSetting.DomainFilterMode, fetchSetting.IpFilterMode, fetchSetting.DomainList, fetchSetting.IpList, fetchSetting.AllowedPorts, fetchSetting.ApplyIPFilterForDomain); err != nil {
+	if err := validateVideoProxyURL(videoURL, channel.Type, fetchSetting); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Video URL blocked for task %s: %v", taskID, err))
 		videoProxyError(c, http.StatusForbidden, "server_error", fmt.Sprintf("request blocked: %v", err))
 		return
@@ -151,7 +154,13 @@ func VideoProxy(c *gin.Context) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode == http.StatusForbidden && channel.Type == constant.ChannelTypeJimeng && isJimengAigcCloudURL(videoURL) {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Jimeng video URL is inaccessible or expired for task %s: %s", taskID, videoURL))
+		videoProxyError(c, http.StatusGone, "video_url_expired", "Video URL is expired or inaccessible")
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned status %d for %s", resp.StatusCode, videoURL))
 		videoProxyError(c, http.StatusBadGateway, "server_error",
 			fmt.Sprintf("Upstream service returned status %d", resp.StatusCode))
@@ -169,6 +178,48 @@ func VideoProxy(c *gin.Context) {
 	if _, err = io.Copy(c.Writer, resp.Body); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to stream video content: %s", err.Error()))
 	}
+}
+
+func validateVideoProxyURL(videoURL string, channelType int, fetchSetting *system_setting.FetchSetting) error {
+	err := common.ValidateURLWithFetchSetting(
+		videoURL,
+		fetchSetting.EnableSSRFProtection,
+		fetchSetting.AllowPrivateIp,
+		fetchSetting.DomainFilterMode,
+		fetchSetting.IpFilterMode,
+		fetchSetting.DomainList,
+		fetchSetting.IpList,
+		fetchSetting.AllowedPorts,
+		fetchSetting.ApplyIPFilterForDomain,
+	)
+	if err == nil {
+		return nil
+	}
+
+	if channelType == constant.ChannelTypeJimeng && isJimengAigcCloudURL(videoURL) {
+		return common.ValidateURLWithFetchSetting(
+			videoURL,
+			fetchSetting.EnableSSRFProtection,
+			true,
+			true,
+			false,
+			[]string{"*.aigc-cloud.com"},
+			nil,
+			fetchSetting.AllowedPorts,
+			true,
+		)
+	}
+
+	return err
+}
+
+func isJimengAigcCloudURL(videoURL string) bool {
+	u, err := url.Parse(videoURL)
+	if err != nil {
+		return false
+	}
+	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	return host == "aigc-cloud.com" || strings.HasSuffix(host, ".aigc-cloud.com")
 }
 
 func writeVideoDataURL(c *gin.Context, dataURL string) error {
