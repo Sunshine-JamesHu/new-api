@@ -189,15 +189,9 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	if err != nil {
 		return nil
 	}
-	body, err := a.convertToRequestPayload(&req, info)
-	if err != nil {
-		return nil
+	return map[string]float64{
+		"seconds": float64(taskcommon.ResolveVideoBillingDuration(req, 5)),
 	}
-	seconds, err := strconv.ParseFloat(body.Duration, 64)
-	if err != nil || seconds <= 0 {
-		seconds = 5
-	}
-	return map[string]float64{"seconds": seconds}
 }
 
 // DoRequest delegates to common helper.

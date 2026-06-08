@@ -83,9 +83,10 @@ func TestEstimateBillingParsesNumericAndStringDuration(t *testing.T) {
 	})
 
 	for name, body := range map[string]string{
-		"number":  `{"model":"kling-v1","prompt":"hello","duration":10}`,
-		"string":  `{"model":"kling-v1","prompt":"hello","duration":"8"}`,
-		"seconds": `{"model":"kling-v1","prompt":"hello","seconds":9}`,
+		"duration number": `{"model":"kling-v1","prompt":"hello","duration":10}`,
+		"duration string": `{"model":"kling-v1","prompt":"hello","duration":"8"}`,
+		"seconds number":  `{"model":"kling-v1","prompt":"hello","seconds":9}`,
+		"seconds string":  `{"model":"kling-v1","prompt":"hello","seconds":"7.2"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := klingTestContext(body)
@@ -93,18 +94,20 @@ func TestEstimateBillingParsesNumericAndStringDuration(t *testing.T) {
 
 			got := (&TaskAdaptor{}).EstimateBilling(c, klingRelayInfo("kling-v1"))
 
-			if name == "number" {
+			if name == "duration number" {
 				require.Equal(t, float64(10), got["seconds"])
-			} else if name == "string" {
+			} else if name == "duration string" {
 				require.Equal(t, float64(8), got["seconds"])
-			} else {
+			} else if name == "seconds number" {
 				require.Equal(t, float64(9), got["seconds"])
+			} else {
+				require.Equal(t, float64(8), got["seconds"])
 			}
 		})
 	}
 }
 
-func TestEstimateBillingUsesMetadataDuration(t *testing.T) {
+func TestEstimateBillingIgnoresMetadataDuration(t *testing.T) {
 	withKlingBillingConfig(t, map[string]string{
 		"billing_setting.billing_mode": `{"kling-v1":"per_second"}`,
 	})
@@ -113,7 +116,7 @@ func TestEstimateBillingUsesMetadataDuration(t *testing.T) {
 	setKlingTaskRequest(t, c)
 
 	got := (&TaskAdaptor{}).EstimateBilling(c, klingRelayInfo("kling-v1"))
-	require.Equal(t, float64(12), got["seconds"])
+	require.Equal(t, float64(5), got["seconds"])
 }
 
 func TestBuildRequestBodySupportsMetadataDurationString(t *testing.T) {
