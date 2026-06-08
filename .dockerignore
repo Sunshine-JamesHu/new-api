@@ -7,6 +7,15 @@ Makefile
 docs
 .eslintcache
 .gocache
+.agents
+.tmp
+.tmp-*
+tmp
+logs
+*.db
+*.log
+*.sqlite
+*.sqlite3
 /web/node_modules
 /web/default/node_modules
 /web/default/dist
