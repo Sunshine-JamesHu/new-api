@@ -45,7 +45,19 @@ func TestConvertTextToVideoDefaults(t *testing.T) {
 	require.NotContains(t, req.Input, "prompt")
 	require.Equal(t, 5, req.Parameters["duration"])
 	require.Equal(t, "1080P", req.Parameters["resolution"])
+	require.Equal(t, false, req.Parameters["watermark"])
 	require.NotContains(t, req.Input, "media")
+}
+
+func TestConvertPreservesExplicitWatermarkTrue(t *testing.T) {
+	req, err := convertToRequest(happyHorseRelayInfo("", "", false), relaycommon.TaskSubmitReq{
+		Model: "happyhorse-1.0-t2v",
+		Metadata: map[string]any{
+			"parameters": map[string]any{"watermark": true},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, true, req.Parameters["watermark"])
 }
 
 func TestConvertMediaModels(t *testing.T) {

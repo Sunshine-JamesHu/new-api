@@ -293,6 +293,9 @@ func convertToRequest(info *relaycommon.RelayInfo, req relaycommon.TaskSubmitReq
 		return nil, err
 	}
 	out.Parameters["resolution"] = resolution
+	if _, ok := out.Parameters["watermark"]; !ok {
+		out.Parameters["watermark"] = false
+	}
 	return out, nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -141,6 +142,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	otherRatios := map[string]float64{}
 	if info != nil && billing_setting.IsPerSecondBilling(info.OriginModelName) {
 		otherRatios["seconds"] = float64(taskcommon.ResolveVideoBillingDuration(req, 5))
+		otherRatios["resolution-"+doubaoBillingResolution(req)] = 1
 	}
 	if info != nil && hasVideoInMetadata(req.Metadata) {
 		if ratio, ok := GetVideoInputRatio(info.OriginModelName); ok {
@@ -299,6 +301,7 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 
 	duration := taskcommon.ResolveVideoBillingDuration(*req, 5)
 	r.Duration = lo.ToPtr(dto.IntValue(duration))
+	r.Resolution = normalizeDoubaoResolution(firstNonEmpty(req.Resolution, r.Resolution))
 
 	r.Content = lo.Reject(r.Content, func(c ContentItem, _ int) bool { return c.Type == "text" })
 	r.Content = append(r.Content, ContentItem{
@@ -307,6 +310,43 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 	})
 
 	return &r, nil
+}
+
+func normalizeDoubaoResolution(value string) string {
+	resolution := strings.TrimSpace(value)
+	if resolution == "" {
+		return ""
+	}
+	return strings.ToLower(resolution)
+}
+
+func doubaoBillingResolution(req relaycommon.TaskSubmitReq) string {
+	return normalizeDoubaoResolution(firstNonEmpty(req.Resolution, stringFromMap(req.Metadata, "resolution"), "720p"))
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func stringFromMap(values map[string]any, key string) string {
+	if values == nil {
+		return ""
+	}
+	value, ok := values[key]
+	if !ok || value == nil {
+		return ""
+	}
+	switch v := value.(type) {
+	case string:
+		return v
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {

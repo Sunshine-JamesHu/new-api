@@ -76,7 +76,7 @@ func TestEstimateBillingUsesDefaultDuration(t *testing.T) {
 	setDoubaoTaskRequest(t, c)
 
 	got := (&TaskAdaptor{}).EstimateBilling(c, doubaoRelayInfo("doubao-seedance-2-0-260128"))
-	require.Equal(t, map[string]float64{"seconds": 5}, got)
+	require.Equal(t, map[string]float64{"seconds": 5, "resolution-720p": 1}, got)
 }
 
 func TestEstimateBillingParsesTopLevelDurationAndSeconds(t *testing.T) {
@@ -100,6 +100,7 @@ func TestEstimateBillingParsesTopLevelDurationAndSeconds(t *testing.T) {
 			got := (&TaskAdaptor{}).EstimateBilling(c, doubaoRelayInfo("doubao-seedance-2-0-260128"))
 
 			require.Equal(t, tc.want, got["seconds"])
+			require.Equal(t, float64(1), got["resolution-720p"])
 		})
 	}
 }
@@ -114,6 +115,7 @@ func TestEstimateBillingIgnoresMetadataDuration(t *testing.T) {
 
 	got := (&TaskAdaptor{}).EstimateBilling(c, doubaoRelayInfo("doubao-seedance-2-0-260128"))
 	require.Equal(t, float64(5), got["seconds"])
+	require.Equal(t, float64(1), got["resolution-720p"])
 }
 
 func TestEstimateBillingCombinesVideoInputAndSeconds(t *testing.T) {
@@ -132,7 +134,46 @@ func TestEstimateBillingCombinesVideoInputAndSeconds(t *testing.T) {
 	got := (&TaskAdaptor{}).EstimateBilling(c, doubaoRelayInfo("doubao-seedance-2-0-260128"))
 
 	require.Equal(t, float64(6), got["seconds"])
+	require.Equal(t, float64(1), got["resolution-720p"])
 	require.InEpsilon(t, 28.0/46.0, got["video_input"], 0.000001)
+}
+
+func TestEstimateBillingIncludesNormalizedResolutionTier(t *testing.T) {
+	withDoubaoBillingConfig(t, map[string]string{
+		"billing_setting.billing_mode": `{"doubao-seedance-2-0-260128":"per_second"}`,
+	})
+
+	for name, tc := range map[string]struct {
+		body string
+		key  string
+	}{
+		"top level 1080P": {
+			body: `{"model":"doubao-seedance-2-0-260128","prompt":"hello","duration":4,"resolution":"1080P","metadata":{"resolution":"720P"}}`,
+			key:  "resolution-1080p",
+		},
+		"top level 720P overrides metadata 1080P": {
+			body: `{"model":"doubao-seedance-2-0-260128","prompt":"hello","duration":4,"resolution":"720P","metadata":{"resolution":"1080P"}}`,
+			key:  "resolution-720p",
+		},
+		"metadata 720P": {
+			body: `{"model":"doubao-seedance-2-0-260128","prompt":"hello","duration":4,"metadata":{"resolution":"720P"}}`,
+			key:  "resolution-720p",
+		},
+		"default": {
+			body: `{"model":"doubao-seedance-2-0-260128","prompt":"hello","duration":4}`,
+			key:  "resolution-720p",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := doubaoTestContext(tc.body)
+			setDoubaoTaskRequest(t, c)
+
+			got := (&TaskAdaptor{}).EstimateBilling(c, doubaoRelayInfo("doubao-seedance-2-0-260128"))
+
+			require.Equal(t, float64(4), got["seconds"])
+			require.Equal(t, float64(1), got[tc.key])
+		})
+	}
 }
 
 func TestBuildRequestBodyUsesTrustedTopLevelDuration(t *testing.T) {
@@ -168,4 +209,62 @@ func TestBuildRequestBodyUsesTrustedTopLevelDuration(t *testing.T) {
 			require.Equal(t, tc.want, *payload.Duration)
 		})
 	}
+}
+
+func TestBuildRequestBodyNormalizesResolution(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body string
+		want string
+	}{
+		"top level 720P": {
+			body: `{"model":"doubao-seedance-2-0-260128","prompt":"hello","duration":4,"resolution":"720P","metadata":{"resolution":"1080P"}}`,
+			want: "720p",
+		},
+		"metadata 480P": {
+			body: `{"model":"doubao-seedance-2-0-260128","prompt":"hello","duration":4,"metadata":{"resolution":"480P"}}`,
+			want: "480p",
+		},
+		"already lowercase": {
+			body: `{"model":"doubao-seedance-2-0-260128","prompt":"hello","duration":4,"metadata":{"resolution":"720p"}}`,
+			want: "720p",
+		},
+		"1080P": {
+			body: `{"model":"doubao-seedance-2-0-260128","prompt":"hello","duration":4,"resolution":"1080P"}`,
+			want: "1080p",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := doubaoTestContext(tc.body)
+			setDoubaoTaskRequest(t, c)
+
+			reader, err := (&TaskAdaptor{}).BuildRequestBody(c, doubaoRelayInfo("doubao-seedance-2-0-260128"))
+			require.NoError(t, err)
+			data, err := io.ReadAll(reader)
+			require.NoError(t, err)
+
+			var payload requestPayload
+			require.NoError(t, common.Unmarshal(data, &payload))
+			require.Equal(t, tc.want, payload.Resolution)
+		})
+	}
+}
+
+func TestBuildRequestBodyPreservesMetadataGenerateAudioFalse(t *testing.T) {
+	c := doubaoTestContext(`{
+		"model":"doubao-seedance-2-0-260128",
+		"prompt":"hello",
+		"duration":4,
+		"metadata":{"generate_audio":false}
+	}`)
+	setDoubaoTaskRequest(t, c)
+
+	reader, err := (&TaskAdaptor{}).BuildRequestBody(c, doubaoRelayInfo("doubao-seedance-2-0-260128"))
+	require.NoError(t, err)
+	data, err := io.ReadAll(reader)
+	require.NoError(t, err)
+
+	var payload requestPayload
+	require.NoError(t, common.Unmarshal(data, &payload))
+	require.NotNil(t, payload.GenerateAudio)
+	require.Equal(t, dto.BoolValue(false), *payload.GenerateAudio)
 }
