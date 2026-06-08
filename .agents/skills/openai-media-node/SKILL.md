@@ -90,12 +90,98 @@ node scripts/newapi-video.mjs \
   --base-url http://localhost:3000
 ```
 
+Doubao examples:
+
+```bash
+# Text to video. The script flag writes provider metadata.generate_audio.
+node scripts/newapi-video.mjs \
+  --provider doubao \
+  --mode t2v \
+  --model doubao-seedance-2-0-fast-260128 \
+  --prompt "FPV drone aerial shot over a misty mountain valley." \
+  --duration 4 \
+  --resolution 720P \
+  --ratio 16:9 \
+  --generate-audio false
+
+# Vertical first-frame image to video, 5 seconds, 720p.
+node scripts/newapi-video.mjs \
+  --provider doubao \
+  --mode i2v \
+  --model doubao-seedance-2-0-fast-260128 \
+  --prompt "Sea breeze across her face, hair and skirt moving gently." \
+  --first-frame-file ./inputs/person-by-the-sea.jpg \
+  --duration 5 \
+  --resolution 720P \
+  --ratio 9:16 \
+  --generate-audio false
+
+# Single first-frame image to video.
+node scripts/newapi-video.mjs \
+  --provider doubao \
+  --mode i2v \
+  --model doubao-seedance-2-0-fast-260128 \
+  --prompt "Smooth FPV drone push forward from the first frame." \
+  --first-frame-file ./inputs/start.jpg \
+  --duration 4 \
+  --resolution 720P
+
+# First/last-frame video.
+node scripts/newapi-video.mjs \
+  --provider doubao \
+  --mode i2v \
+  --model doubao-seedance-2-0-fast-260128 \
+  --prompt "Fly from the snowy mountain opening to the coastal sunset ending." \
+  --first-frame-file ./inputs/start.jpg \
+  --last-frame-file ./inputs/end.jpg \
+  --duration 4 \
+  --resolution 720P
+
+# Multi-reference video.
+node scripts/newapi-video.mjs \
+  --provider doubao \
+  --mode r2v \
+  --model doubao-seedance-2-0-fast-260128 \
+  --prompt "Keep the landscape style consistent while flying forward." \
+  --reference-image-files "./inputs/ref-a.jpg;./inputs/ref-b.jpg;./inputs/ref-c.jpg" \
+  --duration 4 \
+  --resolution 720P
+
+# Seedance 2.0 multimodal reference: images plus optional audio.
+node scripts/newapi-video.mjs \
+  --provider doubao \
+  --mode r2v \
+  --model doubao-seedance-2-0-fast-260128 \
+  --prompt "Use the references for character, outfit, and seaside mood." \
+  --reference-image-files "./inputs/ref-a.jpg;./inputs/ref-b.jpg" \
+  --reference-audio-file ./inputs/voice.wav \
+  --duration 5 \
+  --resolution 720P \
+  --ratio 9:16 \
+  --generate-audio true
+```
+
+Doubao requests use official Ark fields inside `metadata.content`: `text`, `image_url`, `video_url`, `audio_url`, and optional `draft_task`. The script sets image roles for first frame, last frame, and reference images. It also supports official fields such as `--return-last-frame`, `--service-tier`, `--execution-expires-after`, `--frames`, `--seed`, `--camera-fixed`, `--watermark`, `--draft`, `--draft-task-id`, `--web-search`, `--safety-identifier`, and `--priority`.
+
+Keep billable/render duration at top level with `--duration` or `--seconds`. Provider fields go in `metadata`; `--generate-audio` is metadata-only because the gateway does not support top-level `generate_audio`.
+
+Important Doubao limits from Ark docs: Seedance 2.0 fast does not support `1080p`; `duration` is integer seconds and defaults to 5; Seedance 2.0/1.5 support audio generation, defaulting upstream to true when not specified; Seedance 2.0 reference mode can use 1-9 images, up to 3 reference videos, and up to 3 reference audios, but audio cannot be the only reference input. Seedance 2.0 rejects direct upload of many real-person face references; surface that upstream error to the caller instead of retrying blindly.
+
 For Doubao, Kling, and HappyHorse through NewApi, always choose the mode first:
 
 - `t2v`: text-to-video.
 - `i2v`: image-to-video / first-frame-to-video.
 - `r2v`: reference-image/video-to-video.
 - `edit`: video editing.
+
+Image input flags:
+
+- URL flags: `--image-url`, `--first-frame-url`, `--last-frame-url`, `--reference-image-url`.
+- Local file flags: `--image-file`, `--first-frame-file`, `--last-frame-file`, `--reference-image-file`.
+- Multiple local references: `--reference-image-files "a.jpg;b.jpg;c.jpg"`.
+- Video/audio flags: `--video-url`, `--video-file`, `--reference-video-url`, `--reference-video-file`, `--audio-url`, `--audio-file`, `--reference-audio-url`, `--reference-audio-file`.
+
+HappyHorse requests default to `watermark: false`; pass `--watermark true` only when the upstream watermark is desired.
 
 Examples:
 

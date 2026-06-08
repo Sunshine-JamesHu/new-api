@@ -38,6 +38,8 @@ Endpoint shape used by this project:
 - Auth through NewApi: `Authorization: Bearer <VIDEO_API_KEY>`.
 - Direct provider auth exists but is not part of the default skill workflow.
 
+Official Ark create-task docs cover Seedance 2.0, Seedance 2.0 fast, Seedance 1.5 pro, Seedance 1.0 pro, and Seedance 1.0 pro fast. When using this skill through NewApi, keep official provider fields in `metadata`; the gateway converts them to the upstream body.
+
 Payload shape:
 
 ```json
@@ -49,17 +51,81 @@ Payload shape:
     {"type": "text", "text": "prompt"}
   ],
   "duration": 5,
-  "resolution": "1080P",
-  "ratio": "16:9"
+  "resolution": "720p",
+  "ratio": "16:9",
+  "generate_audio": false,
+  "return_last_frame": false,
+  "watermark": false
 }
 ```
+
+NewApi wrapper payload shape:
+
+```json
+{
+  "model": "doubao-seedance-2-0-fast-260128",
+  "prompt": "prompt",
+  "duration": 5,
+  "resolution": "720P",
+  "metadata": {
+    "content": [
+      {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}, "role": "first_frame"},
+      {"type": "text", "text": "prompt"}
+    ],
+    "ratio": "9:16",
+    "generate_audio": false
+  }
+}
+```
+
+The gateway trusts top-level `duration` / `seconds` for billing and upstream duration. Do not rely on `metadata.duration`.
 
 Mode mapping:
 
 - `t2v`: include text content only.
-- `i2v`: include one `image_url` item plus text.
-- `r2v`: include one or more `image_url` or `video_url` items plus text. Follow the official model's limits.
-- `edit`: include one `video_url` item plus text; add image references if the official model supports them.
+- `i2v`: include one `image_url` item with `role: "first_frame"` plus text. The role may be omitted for single first-frame mode, but the script sends it explicitly.
+- First/last-frame I2V: include exactly two `image_url` items with `role: "first_frame"` and `role: "last_frame"`. Prefer this over reference mode when exact first/end frame matching matters.
+- `r2v`: Seedance 2.0 reference mode accepts reference images/videos/audios plus optional text. Use `role: "reference_image"`, `role: "reference_video"`, and `role: "reference_audio"`.
+- `edit`: include a `video_url` item with `role: "reference_video"` plus text; add image/audio references only when the selected model supports them.
+- Draft finalization: Seedance 1.5 pro supports `content` item `{ "type": "draft_task", "draft_task": { "id": "..." } }`.
+
+Official content and file constraints:
+
+- Image URL values may be public URLs, data URLs, or `asset://...` IDs. Formats include JPEG, PNG, WebP, BMP, TIFF, GIF; Seedance 1.5 pro and 2.0 also support HEIC/HEIF. Single image must be under 30 MB, request body under 64 MB.
+- Single first-frame mode uses 1 image. First/last-frame mode uses 2 images. Seedance 2.0 reference image mode uses 1-9 images.
+- Reference video is Seedance 2.0 only. Formats: MP4 or MOV, H.264/H.265 video with AAC/MP3 audio. Up to 3 reference videos, each 2-15 seconds, total reference video duration up to 15 seconds, each under 50 MB.
+- Reference audio is Seedance 2.0 only. Formats: WAV or MP3. Up to 3 audios, each 2-15 seconds, total audio duration up to 15 seconds, each under 15 MB. Audio cannot be the only reference input; include at least one image or video.
+- Seedance 2.0 does not support direct upload of many real-person face references. Upstream may return `InputImageSensitiveContentDetected.PrivacyInformation` or policy errors; pass those failures to the caller.
+
+Model capability notes:
+
+- Seedance 2.0 / 2.0 fast: text-to-video, first-frame I2V, first/last-frame I2V, multimodal reference generation, optional audio generation, web search, priority.
+- Seedance 1.5 pro: text-to-video, first-frame I2V, first/last-frame I2V, audio generation, draft mode.
+- Seedance 1.0 pro: text-to-video, first-frame I2V, first/last-frame I2V.
+- Seedance 1.0 pro fast: text-to-video and first-frame I2V.
+
+Official parameter notes:
+
+- `resolution`: lowercase upstream values `480p`, `720p`, `1080p`. Seedance 2.0 / 1.5 default to `720p`; Seedance 1.0 pro/pro-fast default to `1080p`. Seedance 2.0 fast does not support `1080p`.
+- `ratio`: `16:9`, `4:3`, `1:1`, `3:4`, `9:16`, `21:9`, or `adaptive`. Seedance 2.0 / 1.5 default to `adaptive`; other text-to-video models default to `16:9`, while image-to-video defaults to `adaptive`.
+- 720p 9:16 maps to 720x1280 for Seedance 2.0 / 1.5 and 704x1248 for Seedance 1.0. 1080p 9:16 maps to 1080x1920 for Seedance 2.0 / 1.5 and 1088x1920 for Seedance 1.0.
+- `duration`: integer seconds, default 5. Seedance 1.0 pro/pro-fast supports 2-12 seconds. Seedance 1.5 pro supports 4-12 or `-1`. Seedance 2.0 supports 4-15 or `-1`.
+- `frames`: official alternative to duration, with higher provider priority than duration, but Seedance 2.0 / 1.5 currently do not support it.
+- `generate_audio`: default true upstream for supported models; the NewApi gateway does not support this top-level field, so send it through `metadata` or `--generate-audio true|false`.
+- `return_last_frame`: default false. When true, the fetch API can return a PNG last frame for chaining videos.
+- `service_tier`: `default` or `flex`; Seedance 2.0 only supports online mode and does not support setting this parameter. Flex does not support priority.
+- `execution_expires_after`: task expiration in seconds, range 3600-259200, default 172800.
+- `draft`: Seedance 1.5 pro only. Draft mode uses 480p and does not support return-last-frame or flex.
+- `tools`: Seedance 2.0 supports `[{ "type": "web_search" }]`.
+- `safety_identifier`: stable hashed end-user identifier, max 64 characters.
+- `priority`: Seedance 2.0 only, 0-9, FIFO within equal priorities.
+- `seed`: `-1` or integer up to `2^32-1`.
+- `camera_fixed`: default false; unsupported for reference image scenes and Seedance 2.0.
+- `watermark`: default false.
+
+The script normalizes `720P`/`1080P` style input to lowercase inside Doubao metadata before sending upstream. Audio generation is provider metadata only: use `metadata.generate_audio`, or the script flag `--generate-audio true|false`.
+
+For new-api per-second billing, Doubao emits both `seconds` and a normalized resolution tier key. Configure `billing_setting.per_second_multipliers` with lowercase keys such as `resolution-720p` and `resolution-1080p`.
 
 Keep top-level `duration` or `seconds` as the trusted duration in gateway code. Do not let nested metadata override billing duration.
 
