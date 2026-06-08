@@ -37,3 +37,4 @@ token_estimator_test.go
 skills-lock.json
 tmp/
 .playwright-mcp
+.agents/skills/owl-ai/
