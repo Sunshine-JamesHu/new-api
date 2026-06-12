@@ -126,6 +126,8 @@ export interface LogOtherData {
   model_ratio?: number
   completion_ratio?: number
   model_price?: number
+  seconds?: number
+  [key: `resolution-${string}`]: number | undefined
   group_ratio?: number
   user_group_ratio?: number
   cache_ratio?: number

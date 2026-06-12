@@ -343,6 +343,7 @@ export function getChannelIcon(channelType) {
     case 1: // OpenAI
     case 3: // Azure OpenAI
     case 57: // Codex
+    case 997: // NewApiVideo
       return <OpenAI size={iconSize} />;
     case 2: // Midjourney Proxy
     case 5: // Midjourney Proxy Plus
@@ -1279,6 +1280,100 @@ function buildBillingPriceText(
   });
 }
 
+function getPerSecondBillingParts(opts = {}) {
+  if (opts?.billing_mode !== 'per_second' || opts?.model_price == null) {
+    return null;
+  }
+  const seconds = Number(opts.seconds);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return null;
+  }
+
+  const resolutionKey = Object.keys(opts)
+      .filter((key) => /^resolution-/i.test(key))
+      .sort()[0];
+  const resolutionRatio = resolutionKey ? Number(opts[resolutionKey]) : 1;
+
+  return {
+    seconds,
+    resolutionKey,
+    resolutionRatio:
+        Number.isFinite(resolutionRatio) && resolutionRatio > 0
+            ? resolutionRatio
+            : 1,
+  };
+}
+
+function renderPerSecondBillingProcess({
+                                         modelPrice,
+                                         groupRatio,
+                                         ratioLabel,
+                                         symbol,
+                                         rate,
+                                         seconds,
+                                         resolutionKey,
+                                         resolutionRatio,
+                                       }) {
+  const unitPrice = modelPrice * resolutionRatio;
+  const total = unitPrice * seconds * groupRatio;
+  const resolutionLabel = resolutionKey ? `（${resolutionKey}）` : '';
+
+  return renderBillingArticle([
+    buildBillingPriceText('按秒{{resolutionLabel}}：{{symbol}}{{price}} / 秒', {
+      symbol,
+      usdAmount: unitPrice,
+      rate,
+      resolutionLabel,
+    }),
+    buildBillingText(
+        '按秒 {{symbol}}{{price}} * 秒数 {{seconds}} * {{ratioType}} {{ratio}} = {{symbol}}{{total}}',
+        {
+          symbol,
+          price: formatBillingDisplayPrice(unitPrice, rate),
+          seconds: formatRatioValue(seconds),
+          ratioType: ratioLabel,
+          ratio: groupRatio,
+          total: formatBillingDisplayPrice(total, rate),
+        },
+    ),
+  ]);
+}
+
+function buildPerSecondBillingSegments(opts = {}) {
+  const parts = getPerSecondBillingParts(opts);
+  if (!parts) {
+    return null;
+  }
+  const { ratio: groupRatio } = getEffectiveRatio(
+      opts.group_ratio,
+      opts.user_group_ratio,
+  );
+  const segments = [
+    {
+      tone: 'primary',
+      text: i18next.t('按秒'),
+    },
+    {
+      tone: 'secondary',
+      text: i18next.t('秒数 {{seconds}}', {
+        seconds: formatRatioValue(parts.seconds),
+      }),
+    },
+  ];
+  if (parts.resolutionKey) {
+    const unitPrice = Number(opts.model_price) * parts.resolutionRatio;
+    segments.push({
+      tone: 'secondary',
+      text: `${parts.resolutionKey} ${formatCompactDisplayPrice(unitPrice)}/s`,
+    });
+  }
+  segments.push({
+    tone: 'secondary',
+    text: getGroupRatioText(groupRatio, opts.user_group_ratio),
+  });
+  return segments;
+}
+
 function renderBillingArticle(lines, { showReferenceNote = true } = {}) {
   const articleLines = lines.filter(Boolean);
 
@@ -1667,6 +1762,17 @@ export function renderModelPrice(opts) {
   const completionRatio = _completionRatio ?? 0;
 
   const { symbol, rate } = getCurrencyConfig();
+  const perSecondParts = getPerSecondBillingParts(opts);
+  if (perSecondParts) {
+    return renderPerSecondBillingProcess({
+      modelPrice,
+      groupRatio,
+      ratioLabel,
+      symbol,
+      rate,
+      ...perSecondParts,
+    });
+  }
 
   if (!shouldUseRatioBillingProcess(modelPrice)) {
     if (modelPrice !== -1) {
@@ -2431,6 +2537,13 @@ export function renderModelPriceSimple(opts) {
     displayMode = 'price',
     outputMode = 'text',
   } = opts;
+  const perSecondSegments = buildPerSecondBillingSegments(opts);
+  if (perSecondSegments) {
+    if (outputMode === 'segments') {
+      return perSecondSegments;
+    }
+    return joinBillingSummary(perSecondSegments.map((segment) => segment.text));
+  }
   return renderPriceSimpleCore({
     modelRatio,
     modelPrice,

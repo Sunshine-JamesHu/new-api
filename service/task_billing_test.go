@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -15,6 +16,9 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -70,6 +74,19 @@ func truncate(t *testing.T) {
 		model.DB.Exec("DELETE FROM top_ups")
 		model.DB.Exec("DELETE FROM user_subscriptions")
 	})
+}
+
+func withBillingConfig(t *testing.T, values map[string]string) {
+	t.Helper()
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+	})
+	require.NoError(t, config.GlobalConfig.LoadFromDB(values))
 }
 
 func seedUser(t *testing.T, id int, quota int) {
@@ -179,6 +196,58 @@ func getLastLog(t *testing.T) *model.Log {
 		return nil
 	}
 	return &log
+}
+
+func TestLogTaskConsumption_PerSecondMarksResolutionAndKeepsBillingOther(t *testing.T) {
+	truncate(t)
+	withBillingConfig(t, map[string]string{
+		"billing_setting.billing_mode": `{"video-model":"per_second"}`,
+	})
+	gin.SetMode(gin.TestMode)
+
+	const userID, channelID = 50, 50
+	seedUser(t, userID, 10000000)
+	seedChannel(t, channelID)
+
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", nil)
+	ctx.Set("token_name", "test_token")
+
+	LogTaskConsumption(ctx, &relaycommon.RelayInfo{
+		UserId:          userID,
+		TokenId:         50,
+		UsingGroup:      "default",
+		OriginModelName: "video-model",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelId: channelID,
+		},
+		TaskRelayInfo: &relaycommon.TaskRelayInfo{
+			Action: "textGenerate",
+		},
+		PriceData: types.PriceData{
+			ModelPrice: 0.9,
+			Quota:      1800000,
+			OtherRatios: map[string]float64{
+				"seconds":         4,
+				"resolution-720P": 1,
+			},
+			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
+		},
+	})
+
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	assert.Contains(t, log.Content, "按秒计费")
+	assert.Contains(t, log.Content, "计费分辨率：720P")
+	assert.NotContains(t, log.Content, "seconds: 5.00")
+	assert.NotContains(t, log.Content, "resolution-720P: 1.00")
+
+	var other map[string]interface{}
+	require.NoError(t, common.Unmarshal([]byte(log.Other), &other))
+	assert.Equal(t, "per_second", other["billing_mode"])
+	assert.Equal(t, float64(4), other["seconds"])
+	assert.Equal(t, float64(1), other["resolution-720P"])
 }
 
 func countLogs(t *testing.T) int64 {
@@ -686,6 +755,71 @@ func TestUpdateVideoSingleTaskPreservesNewAPIDataAndReqKey(t *testing.T) {
 // ===========================================================================
 // PerCallBilling tests — settleTaskBillingOnComplete
 // ===========================================================================
+
+func TestUpdateVideoSingleTaskStoresNewAPITaskDtoResultURL(t *testing.T) {
+	truncate(t)
+
+	task := makeTask(41, 41, 0, 0, BillingSourceWallet, 0)
+	task.TaskID = "task_public_newapi_dto"
+	task.Action = "textGenerate"
+	task.PrivateData.UpstreamTaskID = "task_upstream_newapi_dto"
+	task.Status = model.TaskStatusInProgress
+	require.NoError(t, model.DB.Create(task).Error)
+
+	adaptor := &pollingMockAdaptor{body: []byte(`{
+		"code":"success",
+		"data":{
+			"task_id":"task_public_newapi_dto",
+			"status":"SUCCESS",
+			"progress":"100%",
+			"result_url":"https://example.com/newapi-dto.mp4"
+		}
+	}`)}
+	ch := &model.Channel{Id: 41, Key: "sk-test"}
+	err := updateVideoSingleTask(context.Background(), adaptor, ch, "task_upstream_newapi_dto", map[string]*model.Task{
+		"task_upstream_newapi_dto": task,
+	})
+	require.NoError(t, err)
+	require.False(t, adaptor.parseCalled)
+
+	var saved model.Task
+	require.NoError(t, model.DB.First(&saved, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusSuccess, saved.Status)
+	assert.Equal(t, "https://example.com/newapi-dto.mp4", saved.PrivateData.ResultURL)
+	assert.Empty(t, saved.FailReason)
+}
+
+func TestUpdateVideoSingleTaskUsesNewAPIFailReasonAsLegacyResultURL(t *testing.T) {
+	truncate(t)
+
+	task := makeTask(42, 42, 0, 0, BillingSourceWallet, 0)
+	task.TaskID = "task_public_newapi_legacy_url"
+	task.Action = "textGenerate"
+	task.PrivateData.UpstreamTaskID = "task_upstream_newapi_legacy_url"
+	task.Status = model.TaskStatusInProgress
+	require.NoError(t, model.DB.Create(task).Error)
+
+	adaptor := &pollingMockAdaptor{body: []byte(`{
+		"code":"success",
+		"data":{
+			"task_id":"task_public_newapi_legacy_url",
+			"status":"SUCCESS",
+			"progress":"100%",
+			"fail_reason":"https://example.com/newapi-legacy.mp4"
+		}
+	}`)}
+	ch := &model.Channel{Id: 42, Key: "sk-test"}
+	err := updateVideoSingleTask(context.Background(), adaptor, ch, "task_upstream_newapi_legacy_url", map[string]*model.Task{
+		"task_upstream_newapi_legacy_url": task,
+	})
+	require.NoError(t, err)
+	require.False(t, adaptor.parseCalled)
+
+	var saved model.Task
+	require.NoError(t, model.DB.First(&saved, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusSuccess, saved.Status)
+	assert.Equal(t, "https://example.com/newapi-legacy.mp4", saved.PrivateData.ResultURL)
+}
 
 func TestSettle_PerCallBilling_SkipsAdaptorAdjust(t *testing.T) {
 	truncate(t)

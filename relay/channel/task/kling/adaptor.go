@@ -286,7 +286,7 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, in
 		}
 	}
 	r := requestPayload{
-		Prompt:         req.Prompt,
+		Prompt:         req.EffectivePrompt(),
 		Image:          req.Image,
 		Mode:           taskcommon.DefaultString(req.Mode, "std"),
 		Duration:       fmt.Sprintf("%d", duration),

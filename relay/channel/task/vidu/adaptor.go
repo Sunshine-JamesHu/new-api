@@ -225,19 +225,34 @@ func (a *TaskAdaptor) GetChannelName() string {
 // ============================
 
 func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, info *relaycommon.RelayInfo) (*requestPayload, error) {
+	resolution := taskcommon.DefaultString(req.Resolution, taskcommon.DefaultString(req.Size, "720p"))
 	r := requestPayload{
 		Model:             taskcommon.DefaultString(info.UpstreamModelName, "viduq1"),
 		Images:            req.Images,
-		Prompt:            req.Prompt,
+		Prompt:            req.EffectivePrompt(),
 		Duration:          taskcommon.DefaultInt(req.Duration, 5),
-		Resolution:        taskcommon.DefaultString(req.Size, "1080p"),
+		Resolution:        normalizeViduResolution(resolution),
 		MovementAmplitude: "auto",
 		Bgm:               false,
 	}
 	if err := taskcommon.UnmarshalMetadata(req.Metadata, &r); err != nil {
 		return nil, errors.Wrap(err, "unmarshal metadata failed")
 	}
+	if req.Resolution != "" {
+		r.Resolution = req.Resolution
+	} else if r.Resolution == "" && req.Size != "" {
+		r.Resolution = req.Size
+	}
+	r.Resolution = normalizeViduResolution(r.Resolution)
 	return &r, nil
+}
+
+func normalizeViduResolution(value string) string {
+	resolution, err := taskcommon.NormalizeVideoResolutionLower(value)
+	if err != nil {
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+	return resolution
 }
 
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {

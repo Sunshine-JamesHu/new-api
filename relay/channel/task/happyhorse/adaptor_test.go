@@ -42,11 +42,38 @@ func TestConvertTextToVideoDefaults(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "happyhorse-1.0-t2v", req.Model)
-	require.NotContains(t, req.Input, "prompt")
+	require.Equal(t, "horse", req.Input["prompt"])
 	require.Equal(t, 5, req.Parameters["duration"])
-	require.Equal(t, "1080P", req.Parameters["resolution"])
+	require.Equal(t, "720P", req.Parameters["resolution"])
 	require.Equal(t, false, req.Parameters["watermark"])
 	require.NotContains(t, req.Input, "media")
+}
+
+func TestConvertPromptPrefersMetadataInputThenOuterPrompt(t *testing.T) {
+	req, err := convertToRequest(happyHorseRelayInfo("", "", false), relaycommon.TaskSubmitReq{
+		Model:  "happyhorse-1.0-t2v",
+		Prompt: "outer prompt",
+		Metadata: map[string]any{
+			"input": map[string]any{"prompt": "inner prompt"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "inner prompt", req.Input["prompt"])
+
+	req, err = convertToRequest(happyHorseRelayInfo("", "", false), relaycommon.TaskSubmitReq{
+		Model:  "happyhorse-1.0-t2v",
+		Prompt: "outer prompt",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "outer prompt", req.Input["prompt"])
+}
+
+func TestValidateRejectsMissingEffectivePrompt(t *testing.T) {
+	c := happyHorseContext(`{"model":"happyhorse-1.0-t2v","duration":4}`)
+	info := happyHorseRelayInfo("happyhorse-1.0-t2v", "", false)
+	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(c, info)
+	require.NotNil(t, taskErr)
+	require.Equal(t, "invalid_request", taskErr.Code)
 }
 
 func TestConvertPreservesExplicitWatermarkTrue(t *testing.T) {
@@ -191,7 +218,7 @@ func TestBuildRequestBodyUsesMappedModelForLogic(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(data), `"model":"happyhorse-1.0-i2v"`)
 	require.NotContains(t, string(data), `"type":"first_frame"`)
-	require.Contains(t, string(data), `"resolution":"1080P"`)
+	require.Contains(t, string(data), `"resolution":"720P"`)
 }
 
 func TestHeaderEnablesOssResolve(t *testing.T) {
@@ -221,7 +248,7 @@ func TestEstimateBillingAppliesConfiguredPerSecondMultiplier(t *testing.T) {
 	c := happyHorseContext(`{
 		"model":"happyhorse-1.0-t2v",
 		"prompt":"horse",
-		"size":"1080p",
+		"resolution":"1080p",
 		"duration":6
 	}`)
 	info := happyHorseRelayInfo("happyhorse-1.0-t2v", "", false)
@@ -268,7 +295,80 @@ func TestEstimateBillingUsesDefaultDurationAndResolution(t *testing.T) {
 
 	ratios := adaptor.EstimateBilling(c, info)
 	require.Equal(t, float64(5), ratios["seconds"])
-	require.InEpsilon(t, 1.6/0.9, ratios["resolution-1080P"], 0.000001)
+	require.Equal(t, float64(1), ratios["resolution-720P"])
+}
+
+func TestEstimateBillingNormalizesResolutionAliases(t *testing.T) {
+	withHappyHorseBillingConfig(t, map[string]string{
+		"billing_setting.billing_mode": `{"happyhorse-1.0-t2v":"per_second"}`,
+	})
+
+	for name, tc := range map[string]struct {
+		resolution string
+		wantKey    string
+		wantValue  float64
+	}{
+		"480 numeric":    {"480", "resolution-480P", 1},
+		"480 lowercase":  {"480p", "resolution-480P", 1},
+		"720 numeric":    {"720", "resolution-720P", 1},
+		"720 uppercase":  {"720P", "resolution-720P", 1},
+		"1080 lowercase": {"1080p", "resolution-1080P", 16.0 / 9.0},
+		"1080 uppercase": {"1080P", "resolution-1080P", 16.0 / 9.0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := happyHorseContext(`{
+				"model":"happyhorse-1.0-t2v",
+				"prompt":"horse",
+				"duration":5,
+				"resolution":"` + tc.resolution + `"
+			}`)
+			info := happyHorseRelayInfo("happyhorse-1.0-t2v", "", false)
+			adaptor := &TaskAdaptor{}
+			taskErr := adaptor.ValidateRequestAndSetAction(c, info)
+			require.Nil(t, taskErr)
+
+			ratios := adaptor.EstimateBilling(c, info)
+			require.Equal(t, float64(5), ratios["seconds"])
+			require.Equal(t, tc.wantValue, ratios[tc.wantKey])
+		})
+	}
+}
+
+func TestHappyHorseAcceptsResolutionAliases(t *testing.T) {
+	for name, tc := range map[string]struct {
+		resolution string
+		want       string
+	}{
+		"480 numeric":    {"480", "480P"},
+		"480 lowercase":  {"480p", "480P"},
+		"720 uppercase":  {"720P", "720P"},
+		"1080 lowercase": {"1080p", "1080P"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			req, err := convertToRequest(happyHorseRelayInfo("", "", false), relaycommon.TaskSubmitReq{
+				Model:      "happyhorse-1.0-t2v",
+				Resolution: tc.resolution,
+			})
+			require.NoError(t, err)
+			require.Equal(t, tc.want, req.Parameters["resolution"])
+		})
+	}
+}
+
+func TestHappyHorseNormalizesTopLevelResolutionForUpstream(t *testing.T) {
+	req, err := convertToRequest(happyHorseRelayInfo("", "", false), relaycommon.TaskSubmitReq{
+		Model:      "happyhorse-1.0-t2v",
+		Resolution: "480p",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "480P", req.Parameters["resolution"])
+
+	req, err = convertToRequest(happyHorseRelayInfo("", "", false), relaycommon.TaskSubmitReq{
+		Model: "happyhorse-1.0-t2v",
+		Size:  "1080",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "1080P", req.Parameters["resolution"])
 }
 
 func TestValidateRejectsInvalidResolution(t *testing.T) {

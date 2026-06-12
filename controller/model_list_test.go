@@ -156,6 +156,7 @@ func pricingByModelName(pricings []model.Pricing) map[string]model.Pricing {
 
 func TestChannelModelsIncludeHappyHorseTaskModels(t *testing.T) {
 	require.Contains(t, openAIModelsMap, "happyhorse-1.0-t2v")
+	require.Contains(t, openAIModelsMap, "doubao-seedance-1-0-pro-250528")
 
 	aliModels := channelId2Models[constant.ChannelTypeAli]
 	require.NotContains(t, aliModels, "kling/kling-v3-video-generation")
@@ -169,10 +170,20 @@ func TestChannelModelsIncludeHappyHorseTaskModels(t *testing.T) {
 	require.NotContains(t, happyHorseModels, "kling/kling-v3-video-generation")
 	require.NotContains(t, happyHorseModels, "qwen-plus")
 
+	newApiVideoModels := channelId2Models[constant.ChannelTypeNewApiVideo]
+	require.Contains(t, newApiVideoModels, "happyhorse-1.0-t2v")
+	require.Contains(t, newApiVideoModels, "doubao-seedance-1-0-pro-250528")
+	require.NotContains(t, newApiVideoModels, "qwen-plus")
+
 	require.Equal(
 		t,
 		[]constant.EndpointType{constant.EndpointTypeOpenAIVideo},
 		common.GetEndpointTypesByChannelType(constant.ChannelTypeHappyHorse, "happyhorse-1.0-t2v"),
+	)
+	require.Equal(
+		t,
+		[]constant.EndpointType{constant.EndpointTypeOpenAIVideo},
+		common.GetEndpointTypesByChannelType(constant.ChannelTypeNewApiVideo, "happyhorse-1.0-t2v"),
 	)
 	endpointInfo, ok := common.GetDefaultEndpointInfo(constant.EndpointTypeOpenAIVideo)
 	require.True(t, ok)

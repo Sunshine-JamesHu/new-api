@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/config"
@@ -209,4 +210,68 @@ func TestRelayTaskSubmitHappyHorsePerSecondBillingAppliesToQuotaAndHeader(t *tes
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &openAIVideo))
 	require.Equal(t, "happyhorse-1.0-t2v", openAIVideo.Model)
 	require.Equal(t, dto.VideoStatusQueued, openAIVideo.Status)
+}
+
+func TestRelayTaskSubmitNewApiVideoUsesLocalRequestRatiosForQuota(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service.InitHttpClient()
+
+	savedModelPrice := ratio_setting.ModelPrice2JSONString()
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"happyhorse-1.0-t2v":0.001}`))
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(savedModelPrice))
+	})
+
+	withRelayBillingConfig(t, map[string]string{
+		"billing_setting.billing_mode": `{"happyhorse-1.0-t2v":"per_second"}`,
+	})
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/v1/video/generations", r.URL.Path)
+		require.Equal(t, "Bearer sk-newapi", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-New-Api-Other-Ratios", `{"seconds":9,"resolution-1080P":2}`)
+		data, err := common.Marshal(dto.TaskResponse[any]{
+			Code: "success",
+			Data: map[string]any{
+				"task_id":  "task_upstream",
+				"status":   string(model.TaskStatusSubmitted),
+				"progress": "10%",
+			},
+		})
+		require.NoError(t, err)
+		_, _ = w.Write(data)
+	}))
+	t.Cleanup(upstream.Close)
+
+	body := `{"model":"happyhorse-1.0-t2v","prompt":"horse","duration":5,"resolution":"720P"}`
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	common.SetContextKey(c, constant.ContextKeyChannelType, constant.ChannelTypeNewApiVideo)
+	common.SetContextKey(c, constant.ContextKeyChannelId, 997)
+	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, upstream.URL)
+	common.SetContextKey(c, constant.ContextKeyChannelKey, "sk-newapi")
+	common.SetContextKey(c, constant.ContextKeyOriginalModel, "happyhorse-1.0-t2v")
+	common.SetContextKey(c, constant.ContextKeyUserId, 1)
+	common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(c, constant.ContextKeyUsingGroup, "default")
+	common.SetContextKey(c, constant.ContextKeyUserQuota, 1000000)
+	common.SetContextKey(c, constant.ContextKeyTokenId, 1)
+	common.SetContextKey(c, constant.ContextKeyTokenKey, "newapi-video-billing-token")
+
+	info, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
+	require.NoError(t, err)
+	info.Billing = testBillingSession{}
+	result, taskErr := RelayTaskSubmit(c, info)
+	require.Nil(t, taskErr)
+	require.NotNil(t, result)
+
+	require.Equal(t, 2500, result.Quota)
+	require.Equal(t, map[string]float64{
+		"seconds":         5,
+		"resolution-720P": 1,
+	}, info.PriceData.OtherRatios)
+	require.JSONEq(t, `{"seconds":5,"resolution-720P":1}`, recorder.Header().Get("X-New-Api-Other-Ratios"))
 }

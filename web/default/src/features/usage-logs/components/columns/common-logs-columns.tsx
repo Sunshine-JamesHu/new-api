@@ -90,6 +90,20 @@ function getGroupRatioText(other: LogOtherData | null): string | null {
   return null
 }
 
+function getPerSecondResolution(other: LogOtherData): {
+  key?: string
+  ratio: number
+} {
+  const key = Object.keys(other)
+    .filter((item) => item.startsWith('resolution-'))
+    .sort()[0] as `resolution-${string}` | undefined
+  const ratio = key ? other[key] : undefined
+  return {
+    key,
+    ratio: ratio != null && Number.isFinite(ratio) && ratio > 0 ? ratio : 1,
+  }
+}
+
 function splitQuotaDisplay(value: string): { prefix: string; amount: string } {
   const match = value.match(/^([^0-9+\-.,\s]+)(.+)$/)
   if (!match) return { prefix: '', amount: value }
@@ -192,6 +206,39 @@ function buildDetailSegments(
       })
     }
   } else {
+    const isPerSecond =
+      other.billing_mode === 'per_second' && other.model_price != null
+    if (isPerSecond) {
+      const seconds = Number(other.seconds)
+      const resolution = getPerSecondResolution(other)
+      const unitPrice = other.model_price! * resolution.ratio
+      segments.push({
+        text: resolution.key
+          ? `${t('Per-second')} (${resolution.key}) · ${formatBillingCurrencyFromUSD(unitPrice, priceOpts)}/s`
+          : `${t('Per-second')} · ${formatBillingCurrencyFromUSD(unitPrice, priceOpts)}/s`,
+      })
+      if (Number.isFinite(seconds) && seconds > 0) {
+        segments.push({
+          text: `${seconds.toFixed(2)}s`,
+          muted: true,
+        })
+      }
+      if (resolution.key) {
+        segments.push({
+          text: `${formatRatioCompact(resolution.ratio)}x`,
+          muted: true,
+        })
+      }
+      const groupRatioText = getGroupRatioText(other)
+      if (groupRatioText) {
+        segments.push({
+          text: groupRatioText,
+          muted: true,
+        })
+      }
+      return segments
+    }
+
     const isPerCall = isPerCallBilling(other.model_price)
     if (isPerCall) {
       segments.push({

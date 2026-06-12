@@ -62,11 +62,67 @@ func TestProcessAliOtherRatiosEmitsResolutionKeyWithoutDefaultMultiplier(t *test
 	ratios, err := ProcessAliOtherRatios(&aliVideoRequestV2{
 		Model: "unknown-video-model",
 		Parameters: &aliVideoParametersV2{
-			Resolution: "720p",
+			Resolution: "480",
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, 1.0, ratios["resolution-720P"])
+	require.Equal(t, 1.0, ratios["resolution-480P"])
+}
+
+func TestApplyAliParameterOverrideNormalizesResolution(t *testing.T) {
+	for name, tc := range map[string]struct {
+		input string
+		want  string
+	}{
+		"480 numeric": {"480", "480P"},
+		"720 lower":   {"720p", "720P"},
+		"1080 upper":  {"1080P", "1080P"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			target := &aliVideoParametersV2{}
+			applyAliParameterOverride(&aliVideoParametersV2{Resolution: tc.input}, target)
+			require.Equal(t, tc.want, target.Resolution)
+		})
+	}
+}
+
+func TestAliRequestResolutionFieldNormalizesForUpstream(t *testing.T) {
+	for name, tc := range map[string]struct {
+		resolution string
+		want       string
+	}{
+		"480 lower":    {"480p", "480P"},
+		"720 numeric":  {"720", "720P"},
+		"1080 upper":   {"1080P", "1080P"},
+		"default 720P": {"", "720P"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			req, err := (&TaskAdaptor{}).convertToAliRequestV2(aliRelayInfo("wan2.5-i2v-preview", "", false), relaycommon.TaskSubmitReq{
+				Model:      "wan2.5-i2v-preview",
+				Resolution: tc.resolution,
+			})
+			require.NoError(t, err)
+			require.Equal(t, tc.want, req.Parameters.Resolution)
+		})
+	}
+
+	for name, tc := range map[string]struct {
+		resolution string
+		want       string
+	}{
+		"480 numeric": {"480", "480P"},
+		"720 lower":   {"720p", "720P"},
+		"1080 lower":  {"1080p", "1080P"},
+	} {
+		t.Run("legacy "+name, func(t *testing.T) {
+			legacyReq, err := (&TaskAdaptor{}).convertToAliRequest(aliRelayInfo("wan2.5-i2v-preview", "", false), relaycommon.TaskSubmitReq{
+				Model:      "wan2.5-i2v-preview",
+				Resolution: tc.resolution,
+			})
+			require.NoError(t, err)
+			require.Equal(t, tc.want, legacyReq.Parameters.Resolution)
+		})
+	}
 }
 
 func TestAliValidateAndBuildLegacyRequest(t *testing.T) {

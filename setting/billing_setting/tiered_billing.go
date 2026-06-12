@@ -3,6 +3,8 @@ package billing_setting
 import (
 	"fmt"
 	"math"
+	"sort"
+	"strings"
 
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/setting/config"
@@ -69,19 +71,87 @@ func validPerSecondMultiplier(value float64) bool {
 	return value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
+func NormalizePerSecondMultiplierKey(key string) string {
+	trimmed := strings.TrimSpace(key)
+	if trimmed == "" {
+		return ""
+	}
+
+	const prefix = "resolution-"
+	if len(trimmed) <= len(prefix) || !strings.EqualFold(trimmed[:len(prefix)], prefix) {
+		return trimmed
+	}
+
+	value := strings.ToLower(strings.TrimSpace(trimmed[len(prefix):]))
+	value = strings.TrimSuffix(value, "p")
+	switch value {
+	case "480", "720", "1080":
+		return prefix + value + "P"
+	default:
+		return trimmed
+	}
+}
+
+func canonicalResolutionMultiplierKey(key string) bool {
+	switch key {
+	case "resolution-480P", "resolution-720P", "resolution-1080P":
+		return true
+	default:
+		return false
+	}
+}
+
+func NormalizePerSecondMultipliers(src map[string]float64) map[string]float64 {
+	if len(src) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(src))
+	for key := range src {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	type normalizedValue struct {
+		value    float64
+		priority int
+	}
+	normalized := make(map[string]normalizedValue, len(src))
+	for _, key := range keys {
+		value := src[key]
+		normalizedKey := NormalizePerSecondMultiplierKey(key)
+		if normalizedKey == "" || !validPerSecondMultiplier(value) {
+			continue
+		}
+
+		priority := 1
+		if canonicalResolutionMultiplierKey(normalizedKey) && key == normalizedKey {
+			priority = 2
+		}
+		if existing, ok := normalized[normalizedKey]; ok && existing.priority > priority {
+			continue
+		}
+		normalized[normalizedKey] = normalizedValue{value: value, priority: priority}
+	}
+
+	if len(normalized) == 0 {
+		return nil
+	}
+
+	cleaned := make(map[string]float64, len(normalized))
+	for key, item := range normalized {
+		cleaned[key] = item.value
+	}
+	return cleaned
+}
+
 func sanitizePerSecondMultipliers(src map[string]map[string]float64) map[string]map[string]float64 {
 	cleaned := make(map[string]map[string]float64)
 	for model, multipliers := range src {
 		if model == "" || len(multipliers) == 0 {
 			continue
 		}
-		modelMultipliers := make(map[string]float64)
-		for key, value := range multipliers {
-			if key == "" || !validPerSecondMultiplier(value) {
-				continue
-			}
-			modelMultipliers[key] = value
-		}
+		modelMultipliers := NormalizePerSecondMultipliers(multipliers)
 		if len(modelMultipliers) > 0 {
 			cleaned[model] = modelMultipliers
 		}
@@ -102,8 +172,16 @@ func GetPerSecondMultiplier(model, key string) (float64, bool) {
 	if len(multipliers) == 0 {
 		return 0, false
 	}
-	value, ok := multipliers[key]
-	return value, ok
+	normalizedKey := NormalizePerSecondMultiplierKey(key)
+	if value, ok := multipliers[normalizedKey]; ok {
+		return value, true
+	}
+	for configuredKey, value := range multipliers {
+		if strings.EqualFold(configuredKey, normalizedKey) || strings.EqualFold(configuredKey, key) {
+			return value, true
+		}
+	}
+	return 0, false
 }
 
 func GetPerSecondMultipliersCopy() map[string]map[string]float64 {

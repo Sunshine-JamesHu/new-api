@@ -105,6 +105,27 @@ export type ModelPricingEditorPanelHandle = {
   commitDraft: () => Promise<ModelRatioData | null>
 }
 
+function normalizePerSecondMultiplierKey(key: string): string {
+  const match = key.trim().match(/^resolution-(480|720|1080)p?$/i)
+  return match ? `resolution-${match[1]}P` : key
+}
+
+function getPerSecondMultiplier(
+  multipliers: PerSecondMultipliers,
+  key: string
+): number | null {
+  const normalizedKey = normalizePerSecondMultiplierKey(key)
+  const direct = toNumberOrNull(multipliers[normalizedKey])
+  if (direct !== null) return direct
+
+  for (const [candidateKey, value] of Object.entries(multipliers)) {
+    if (normalizePerSecondMultiplierKey(candidateKey) === normalizedKey) {
+      return toNumberOrNull(value)
+    }
+  }
+  return null
+}
+
 function createInitialPerSecondPrices(
   data?: ModelRatioData | null
 ): Record<string, string> {
@@ -112,7 +133,10 @@ function createInitialPerSecondPrices(
   const multipliers = data?.perSecondMultipliers || {}
   return Object.fromEntries(
     PER_SECOND_RESOLUTION_ROWS.map(({ key }) => {
-      const multiplier = toNumberOrNull(multipliers[key])
+      const multiplier = getPerSecondMultiplier(multipliers, key)
+      if (key === 'resolution-720P' && basePrice !== null && multiplier === null) {
+        return [key, formatPricingNumber(basePrice)]
+      }
       if (basePrice === null || multiplier === null) return [key, '']
       return [key, formatPricingNumber(basePrice * multiplier)]
     })

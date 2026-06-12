@@ -129,3 +129,16 @@ func TestBuildRequestBodySupportsMetadataDurationString(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(data), `"duration":"12"`)
 }
+
+func TestBuildRequestBodyUsesEffectivePrompt(t *testing.T) {
+	c := klingTestContext(`{"model":"kling-v1","prompt":"outer","metadata":{"input":{"prompt":"inner"}}}`)
+	setKlingTaskRequest(t, c)
+
+	reader, err := (&TaskAdaptor{}).BuildRequestBody(c, klingRelayInfo("kling-v1"))
+	require.NoError(t, err)
+	data, err := io.ReadAll(reader)
+	require.NoError(t, err)
+
+	require.Contains(t, string(data), `"prompt":"inner"`)
+	require.NotContains(t, string(data), `"prompt":"outer"`)
+}

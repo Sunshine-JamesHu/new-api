@@ -253,9 +253,9 @@ export default function ModelRatioSettings(props) {
             <Form.TextArea
               label={t('按秒分辨率倍率')}
               extraText={t(
-                '为一个 JSON 文本，键为模型名称，值为分辨率到倍率的映射，例如：{"happyhorse-1.0-t2v":{"resolution-720P":1,"resolution-1080P":1.777778}}',
+                '为一个 JSON 文本，键为模型名称，值为分辨率到倍率的映射，例如：{"happyhorse-1.0-t2v":{"resolution-480P":0.5,"resolution-720P":1,"resolution-1080P":1.777778}}',
               )}
-              placeholder='{"happyhorse-1.0-t2v":{"resolution-720P":1,"resolution-1080P":1.777778}}'
+              placeholder='{"happyhorse-1.0-t2v":{"resolution-480P":0.5,"resolution-720P":1,"resolution-1080P":1.777778}}'
               field={'billing_setting.per_second_multipliers'}
               autosize={{ minRows: 6, maxRows: 12 }}
               trigger='blur'

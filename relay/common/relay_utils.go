@@ -130,7 +130,6 @@ func validateMultipartTaskRequest(c *gin.Context, info *RelayInfo, action string
 }
 
 func ValidateMultipartDirect(c *gin.Context, info *RelayInfo) *dto.TaskError {
-	var prompt string
 	var model string
 	var seconds int
 	var size string
@@ -141,12 +140,6 @@ func ValidateMultipartDirect(c *gin.Context, info *RelayInfo) *dto.TaskError {
 		return createTaskError(err, "invalid_json", http.StatusBadRequest, true)
 	}
 
-	prompt = req.Prompt
-	if prompt == "" && req.Input != nil {
-		if inputPrompt, ok := req.Input["prompt"].(string); ok {
-			prompt = inputPrompt
-		}
-	}
 	model = req.Model
 	size = req.Size
 	if req.Seconds != "" {
@@ -169,7 +162,7 @@ func ValidateMultipartDirect(c *gin.Context, info *RelayInfo) *dto.TaskError {
 		hasInputReference = true
 	}
 
-	if taskErr := validatePrompt(prompt); taskErr != nil {
+	if taskErr := validatePrompt(req.EffectivePrompt()); taskErr != nil {
 		return taskErr
 	}
 
@@ -234,7 +227,7 @@ func ValidateBasicTaskRequest(c *gin.Context, info *RelayInfo, action string) *d
 		return createTaskError(err, "invalid_request", http.StatusBadRequest, true)
 	}
 
-	if taskErr := validatePrompt(req.Prompt); taskErr != nil {
+	if taskErr := validatePrompt(req.EffectivePrompt()); taskErr != nil {
 		return taskErr
 	}
 
@@ -261,6 +254,9 @@ func ValidateMetadataPassthroughTaskRequest(c *gin.Context, info *RelayInfo, act
 	}
 	if err := common.UnmarshalBodyReusable(c, &req); err != nil {
 		return createTaskError(err, "invalid_request", http.StatusBadRequest, true)
+	}
+	if taskErr := validatePrompt(req.EffectivePrompt()); taskErr != nil {
+		return taskErr
 	}
 	if len(req.Images) == 0 && strings.TrimSpace(req.Image) != "" {
 		req.Images = []string{req.Image}

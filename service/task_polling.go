@@ -381,20 +381,35 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 
 	taskResult := &relaycommon.TaskInfo{}
 	// try parse as New API response format
-	var responseItems dto.TaskResponse[model.Task]
-	if err = common.Unmarshal(responseBody, &responseItems); err == nil && responseItems.IsSuccess() {
-		logger.LogDebug(ctx, "updateVideoSingleTask parsed as new api response format: %+v", responseItems)
-		t := responseItems.Data
+	var responseDto dto.TaskResponse[dto.TaskDto]
+	if err = common.Unmarshal(responseBody, &responseDto); err == nil && responseDto.IsSuccess() {
+		logger.LogDebug(ctx, "updateVideoSingleTask parsed as new api task dto response format: %+v", responseDto)
+		t := responseDto.Data
 		taskResult.TaskID = t.TaskID
-		taskResult.Status = string(t.Status)
-		taskResult.Url = t.GetResultURL()
+		taskResult.Status = t.Status
+		taskResult.Url = t.ResultURL
+		if taskResult.Url == "" {
+			taskResult.Url = t.FailReason
+		}
 		taskResult.Progress = t.Progress
 		taskResult.Reason = t.FailReason
 		task.Data = t.Data
-	} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
-		return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
 	} else {
-		task.Data = redactVideoResponseBody(responseBody)
+		var responseItems dto.TaskResponse[model.Task]
+		if err = common.Unmarshal(responseBody, &responseItems); err == nil && responseItems.IsSuccess() {
+			logger.LogDebug(ctx, "updateVideoSingleTask parsed as new api task model response format: %+v", responseItems)
+			t := responseItems.Data
+			taskResult.TaskID = t.TaskID
+			taskResult.Status = string(t.Status)
+			taskResult.Url = t.GetResultURL()
+			taskResult.Progress = t.Progress
+			taskResult.Reason = t.FailReason
+			task.Data = t.Data
+		} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
+			return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
+		} else {
+			task.Data = redactVideoResponseBody(responseBody)
+		}
 	}
 
 	task.Data = preserveTaskReqKey(oldData, task.Data)

@@ -61,7 +61,7 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	if strings.TrimSpace(req.Model) == "" {
 		return service.TaskErrorWrapperLocal(fmt.Errorf("model is required"), "missing_model", http.StatusBadRequest)
 	}
-	if _, err = taskcommon.ResolveVideoBillingResolution(req, "1080P"); err != nil {
+	if _, err = taskcommon.ResolveVideoBillingResolution(req, "720P"); err != nil {
 		return service.TaskErrorWrapperLocal(err, "invalid_resolution", http.StatusBadRequest)
 	}
 	info.Action = happyHorseActionForModel(req.Model)
@@ -115,7 +115,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	}
 	seconds := taskcommon.ResolveVideoBillingDuration(taskReq, 5)
 	otherRatios := map[string]float64{"seconds": float64(seconds)}
-	resolution, err := taskcommon.ResolveVideoBillingResolution(taskReq, "1080P")
+	resolution, err := taskcommon.ResolveVideoBillingResolution(taskReq, "720P")
 	if err != nil {
 		return nil
 	}
@@ -150,7 +150,6 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	if upstreamResp.Output.TaskID == "" {
 		return "", nil, service.TaskErrorWrapper(fmt.Errorf("task_id is empty"), "invalid_response", http.StatusInternalServerError)
 	}
-
 	openAIResp := dto.NewOpenAIVideo()
 	openAIResp.ID = info.PublicTaskID
 	openAIResp.TaskID = info.PublicTaskID
@@ -287,8 +286,13 @@ func convertToRequest(info *relaycommon.RelayInfo, req relaycommon.TaskSubmitReq
 	}
 	delete(out.Input, "model")
 	delete(out.Parameters, "model")
+	if prompt := req.EffectivePrompt(); prompt != "" {
+		if current, ok := stringMapValue(out.Input, "prompt"); !ok || strings.TrimSpace(current) == "" {
+			out.Input["prompt"] = prompt
+		}
+	}
 	out.Parameters["duration"] = taskcommon.ResolveVideoBillingDuration(req, 5)
-	resolution, err := taskcommon.ResolveVideoBillingResolution(req, "1080P")
+	resolution, err := taskcommon.ResolveVideoBillingResolution(req, "720P")
 	if err != nil {
 		return nil, err
 	}
@@ -326,7 +330,9 @@ func applyMetadata(metadata map[string]any, out *happyHorseRequest) error {
 	copyAny(metadata, out.Input, "multi_prompt")
 	copyAny(metadata, out.Input, "element_list")
 	copyAny(metadata, out.Input, "reference_voice")
-	copyString(metadata, out.Parameters, "resolution")
+	if resolution, ok := stringMapValue(metadata, "resolution"); ok {
+		out.Parameters["resolution"] = normalizeResolution(resolution)
+	}
 	copyString(metadata, out.Parameters, "size")
 	copyAny(metadata, out.Parameters, "prompt_extend")
 	copyAny(metadata, out.Parameters, "watermark")
@@ -496,12 +502,9 @@ func requestMedia(modelName string, urls []string) []map[string]any {
 }
 
 func normalizeResolution(value string) string {
-	resolution := strings.ToUpper(strings.TrimSpace(value))
-	if resolution == "" {
-		return ""
-	}
-	if !strings.HasSuffix(resolution, "P") {
-		resolution += "P"
+	resolution, err := taskcommon.NormalizeVideoResolution(value)
+	if err != nil {
+		return strings.ToUpper(strings.TrimSpace(value))
 	}
 	return resolution
 }
@@ -534,6 +537,12 @@ func applyConfiguredMultiplierFallbacks(info *relaycommon.RelayInfo, ratios map[
 
 func mergeMap(target map[string]any, source map[string]any) {
 	for key, value := range source {
+		if key == "resolution" {
+			if s, ok := value.(string); ok {
+				target[key] = normalizeResolution(s)
+				continue
+			}
+		}
 		target[key] = value
 	}
 }

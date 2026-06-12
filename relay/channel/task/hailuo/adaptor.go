@@ -149,24 +149,36 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, in
 		duration = req.Duration
 	}
 	resolution := modelConfig.DefaultResolution
-	if req.Size != "" {
+	if req.Resolution != "" {
+		resolution = a.parseResolutionFromSize(req.Resolution, modelConfig)
+	} else if req.Size != "" {
 		resolution = a.parseResolutionFromSize(req.Size, modelConfig)
 	}
 
 	videoRequest := &VideoRequest{
 		Model:      info.UpstreamModelName,
-		Prompt:     req.Prompt,
+		Prompt:     req.EffectivePrompt(),
 		Duration:   &duration,
 		Resolution: resolution,
 	}
 	if err := req.UnmarshalMetadata(&videoRequest); err != nil {
 		return nil, errors.Wrap(err, "unmarshal metadata to video request failed")
 	}
+	if req.Resolution != "" {
+		videoRequest.Resolution = a.parseResolutionFromSize(req.Resolution, modelConfig)
+	}
+	videoRequest.Resolution = normalizeHailuoResolution(videoRequest.Resolution, modelConfig)
 
 	return videoRequest, nil
 }
 
 func (a *TaskAdaptor) parseResolutionFromSize(size string, modelConfig ModelConfig) string {
+	if resolution, err := taskcommon.NormalizeVideoResolution(size); err == nil && resolution != "" {
+		if containsResolution(modelConfig.SupportedResolutions, resolution) {
+			return resolution
+		}
+		return modelConfig.DefaultResolution
+	}
 	switch {
 	case strings.Contains(size, "1080"):
 		return Resolution1080P
@@ -179,6 +191,28 @@ func (a *TaskAdaptor) parseResolutionFromSize(size string, modelConfig ModelConf
 	default:
 		return modelConfig.DefaultResolution
 	}
+}
+
+func normalizeHailuoResolution(value string, modelConfig ModelConfig) string {
+	if resolution, err := taskcommon.NormalizeVideoResolution(value); err == nil && resolution != "" {
+		if containsResolution(modelConfig.SupportedResolutions, resolution) {
+			return resolution
+		}
+		return modelConfig.DefaultResolution
+	}
+	if containsResolution(modelConfig.SupportedResolutions, value) {
+		return value
+	}
+	return modelConfig.DefaultResolution
+}
+
+func containsResolution(supported []string, resolution string) bool {
+	for _, item := range supported {
+		if strings.EqualFold(item, resolution) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {

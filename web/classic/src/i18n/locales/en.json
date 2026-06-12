@@ -3834,6 +3834,7 @@
     "输入每秒生成价格": "Enter the generation price per second",
     "适合视频模型按生成秒数计费。": "Suitable for video models billed by generated seconds.",
     "HappyHorse": "HappyHorse",
+    "NewApiVideo": "NewApiVideo",
     "通义千问": "Qwen"
   }
 }

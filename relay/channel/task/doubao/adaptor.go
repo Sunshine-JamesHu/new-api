@@ -232,7 +232,6 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		taskErr = service.TaskErrorWrapper(fmt.Errorf("task_id is empty"), "invalid_response", http.StatusInternalServerError)
 		return
 	}
-
 	ov := dto.NewOpenAIVideo()
 	ov.ID = info.PublicTaskID
 	ov.TaskID = info.PublicTaskID
@@ -301,27 +300,47 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 
 	duration := taskcommon.ResolveVideoBillingDuration(*req, 5)
 	r.Duration = lo.ToPtr(dto.IntValue(duration))
-	r.Resolution = normalizeDoubaoResolution(firstNonEmpty(req.Resolution, r.Resolution))
+	r.Resolution = normalizeDoubaoRequestResolution(doubaoRequestResolution(*req, r.Resolution))
 
 	r.Content = lo.Reject(r.Content, func(c ContentItem, _ int) bool { return c.Type == "text" })
 	r.Content = append(r.Content, ContentItem{
 		Type: "text",
-		Text: req.Prompt,
+		Text: req.EffectivePrompt(),
 	})
 
 	return &r, nil
 }
 
-func normalizeDoubaoResolution(value string) string {
-	resolution := strings.TrimSpace(value)
-	if resolution == "" {
-		return ""
+const defaultDoubaoResolution = "720p"
+
+func normalizeDoubaoRequestResolution(value string) string {
+	resolution, err := taskcommon.NormalizeVideoResolutionLower(value)
+	if err != nil {
+		return strings.ToLower(strings.TrimSpace(value))
 	}
-	return strings.ToLower(resolution)
+	return resolution
 }
 
 func doubaoBillingResolution(req relaycommon.TaskSubmitReq) string {
-	return normalizeDoubaoResolution(firstNonEmpty(req.Resolution, stringFromMap(req.Metadata, "resolution"), "720p"))
+	return normalizeDoubaoBillingResolution(doubaoRequestResolution(req, stringFromMap(req.Metadata, "resolution")))
+}
+
+func normalizeDoubaoBillingResolution(value string) string {
+	resolution, err := taskcommon.NormalizeVideoResolution(value)
+	if err != nil {
+		return strings.ToUpper(strings.TrimSpace(value))
+	}
+	return resolution
+}
+
+func doubaoRequestResolution(req relaycommon.TaskSubmitReq, metadataResolution string) string {
+	if value := firstNonEmpty(req.Resolution, metadataResolution); value != "" {
+		return value
+	}
+	if taskcommon.IsVideoResolutionAlias(req.Size) {
+		return req.Size
+	}
+	return defaultDoubaoResolution
 }
 
 func firstNonEmpty(values ...string) string {

@@ -25,16 +25,33 @@ import type { PricingModel, TokenUnit, PriceType } from '../types'
 // ----------------------------------------------------------------------------
 
 export const PER_SECOND_RESOLUTION_PRICE_ITEMS = [
+  { key: 'resolution-480P', label: '480P' },
   { key: 'resolution-720P', label: '720P' },
   { key: 'resolution-1080P', label: '1080P' },
 ] as const
+
+function normalizePerSecondMultiplierKey(key: string): string {
+  const match = key.trim().match(/^resolution-(480|720|1080)p?$/i)
+  return match ? `resolution-${match[1]}P` : key
+}
 
 function getPositiveMultiplier(
   multipliers: Record<string, number> | undefined,
   key: string
 ): number {
-  const value = Number(multipliers?.[key])
-  return Number.isFinite(value) && value > 0 ? value : 1
+  const normalizedKey = normalizePerSecondMultiplierKey(key)
+  const directValue = Number(multipliers?.[normalizedKey])
+  if (Number.isFinite(directValue) && directValue > 0) return directValue
+
+  for (const [candidateKey, value] of Object.entries(multipliers || {})) {
+    if (normalizePerSecondMultiplierKey(candidateKey) !== normalizedKey) {
+      continue
+    }
+    const parsed = Number(value)
+    if (Number.isFinite(parsed) && parsed > 0) return parsed
+  }
+
+  return 1
 }
 
 /**

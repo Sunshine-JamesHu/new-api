@@ -24,14 +24,32 @@ func TestResolveVideoBillingDurationUsesOuterFieldsOnly(t *testing.T) {
 }
 
 func TestResolveVideoBillingResolution(t *testing.T) {
-	resolution, err := ResolveVideoBillingResolution(relaycommon.TaskSubmitReq{Resolution: "1080p"}, "720P")
-	require.NoError(t, err)
-	require.Equal(t, "1080P", resolution)
+	for name, tc := range map[string]struct {
+		req  relaycommon.TaskSubmitReq
+		want string
+	}{
+		"top level 480 numeric": {req: relaycommon.TaskSubmitReq{Resolution: "480"}, want: "480P"},
+		"top level 480 lower":   {req: relaycommon.TaskSubmitReq{Resolution: "480p"}, want: "480P"},
+		"top level 480 upper":   {req: relaycommon.TaskSubmitReq{Resolution: "480P"}, want: "480P"},
+		"top level 720 numeric": {req: relaycommon.TaskSubmitReq{Resolution: "720"}, want: "720P"},
+		"top level 720 lower":   {req: relaycommon.TaskSubmitReq{Resolution: "720p"}, want: "720P"},
+		"top level 720 upper":   {req: relaycommon.TaskSubmitReq{Resolution: "720P"}, want: "720P"},
+		"top level 1080 numeric": {
+			req:  relaycommon.TaskSubmitReq{Resolution: "1080"},
+			want: "1080P",
+		},
+		"top level 1080 lower": {req: relaycommon.TaskSubmitReq{Resolution: "1080p"}, want: "1080P"},
+		"top level 1080 upper": {req: relaycommon.TaskSubmitReq{Resolution: "1080P"}, want: "1080P"},
+		"size fallback":        {req: relaycommon.TaskSubmitReq{Size: "1080p"}, want: "1080P"},
+		"default":              {req: relaycommon.TaskSubmitReq{}, want: "720P"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resolution, err := ResolveVideoBillingResolution(tc.req, "720P")
+			require.NoError(t, err)
+			require.Equal(t, tc.want, resolution)
+		})
+	}
 
-	resolution, err = ResolveVideoBillingResolution(relaycommon.TaskSubmitReq{}, "720P")
-	require.NoError(t, err)
-	require.Equal(t, "720P", resolution)
-
-	_, err = ResolveVideoBillingResolution(relaycommon.TaskSubmitReq{Resolution: "4K"}, "720P")
+	_, err := ResolveVideoBillingResolution(relaycommon.TaskSubmitReq{Resolution: "4K"}, "720P")
 	require.Error(t, err)
 }

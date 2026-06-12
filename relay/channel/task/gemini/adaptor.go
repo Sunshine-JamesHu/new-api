@@ -76,7 +76,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		return nil, fmt.Errorf("unexpected task_request type")
 	}
 
-	instance := VeoInstance{Prompt: req.Prompt}
+	instance := VeoInstance{Prompt: req.EffectivePrompt()}
 	if img := ExtractMultipartImage(c, info); img != nil {
 		instance.Image = img
 	} else if len(req.Images) > 0 {
@@ -93,13 +93,16 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	if params.DurationSeconds == 0 && req.Duration > 0 {
 		params.DurationSeconds = req.Duration
 	}
+	if req.Resolution != "" {
+		params.Resolution = req.Resolution
+	}
 	if params.Resolution == "" && req.Size != "" {
 		params.Resolution = SizeToVeoResolution(req.Size)
 	}
 	if params.AspectRatio == "" && req.Size != "" {
 		params.AspectRatio = SizeToVeoAspectRatio(req.Size)
 	}
-	params.Resolution = strings.ToLower(params.Resolution)
+	params.Resolution = NormalizeVeoResolution(params.Resolution)
 	params.SampleCount = 1
 
 	body := VeoRequestPayload{
@@ -169,7 +172,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	}
 
 	seconds := ResolveVeoDuration(req.Metadata, req.Duration, req.Seconds)
-	resolution := ResolveVeoResolution(req.Metadata, req.Size)
+	resolution := ResolveVeoResolution(req.Metadata, req.Resolution, req.Size)
 	resRatio := VeoResolutionRatio(info.UpstreamModelName, resolution)
 
 	return map[string]float64{

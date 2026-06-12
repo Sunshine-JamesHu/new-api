@@ -119,26 +119,45 @@ func TestJimengActionUsesFinalResolvedReqKey(t *testing.T) {
 	require.Equal(t, constant.TaskActionTextGenerate, info.Action)
 }
 
-func TestJimengTextToVideoRequiresMetadataPrompt(t *testing.T) {
-	c := jimengContext(`{"model":"jimeng_t2v_v30","prompt":"outer ignored","duration":5,"metadata":{"input":{"prompt":"nested ignored"}}}`)
+func TestJimengTextToVideoRejectsMissingEffectivePrompt(t *testing.T) {
+	c := jimengContext(`{"model":"jimeng_t2v_v30","duration":5,"metadata":{"duration":5}}`)
 	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(c, jimengRelayInfo("jimeng_t2v_v30"))
 	require.NotNil(t, taskErr)
-	require.Equal(t, "missing_prompt", taskErr.Code)
+	require.Equal(t, "invalid_request", taskErr.Code)
 }
 
 func TestJimengTextToVideoPromptIsTopLevelUpstreamField(t *testing.T) {
-	c := jimengContext(`{"model":"jimeng_t2v_v30","prompt":"outer ignored","duration":5,"metadata":{"prompt":"real prompt","input":{"prompt":"nested ignored"}}}`)
-	info := jimengRelayInfo("jimeng_t2v_v30")
-	require.Nil(t, (&TaskAdaptor{}).ValidateRequestAndSetAction(c, info))
+	for name, tc := range map[string]struct {
+		body string
+		want string
+	}{
+		"metadata prompt wins": {
+			body: `{"model":"jimeng_t2v_v30","prompt":"outer ignored","duration":5,"metadata":{"prompt":"real prompt","input":{"prompt":"nested ignored"}}}`,
+			want: `"prompt":"real prompt"`,
+		},
+		"outer prompt fallback": {
+			body: `{"model":"jimeng_t2v_v30","prompt":"outer prompt","duration":5,"metadata":{"duration":5}}`,
+			want: `"prompt":"outer prompt"`,
+		},
+		"metadata input prompt fallback": {
+			body: `{"model":"jimeng_t2v_v30","prompt":"outer ignored","duration":5,"metadata":{"input":{"prompt":"nested prompt"}}}`,
+			want: `"prompt":"nested prompt"`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := jimengContext(tc.body)
+			info := jimengRelayInfo("jimeng_t2v_v30")
+			require.Nil(t, (&TaskAdaptor{}).ValidateRequestAndSetAction(c, info))
 
-	body, err := (&TaskAdaptor{}).BuildRequestBody(c, info)
-	require.NoError(t, err)
-	data, err := io.ReadAll(body)
-	require.NoError(t, err)
+			body, err := (&TaskAdaptor{}).BuildRequestBody(c, info)
+			require.NoError(t, err)
+			data, err := io.ReadAll(body)
+			require.NoError(t, err)
 
-	require.Contains(t, string(data), `"prompt":"real prompt"`)
-	require.Contains(t, string(data), `"input":{"prompt":"nested ignored"}`)
-	require.NotContains(t, string(data), `"outer ignored"`)
+			require.Contains(t, string(data), tc.want)
+			require.NotContains(t, string(data), `"outer ignored"`)
+		})
+	}
 }
 
 func TestJimengFetchTaskRequiresReqKey(t *testing.T) {

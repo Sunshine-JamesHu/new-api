@@ -609,13 +609,30 @@ export const selectFilter = (input, option) => {
 // -------------------------------
 // 模型定价计算工具函数
 const PER_SECOND_RESOLUTION_PRICE_ITEMS = [
+  { key: 'resolution-480P', label: '480P' },
   { key: 'resolution-720P', label: '720P' },
   { key: 'resolution-1080P', label: '1080P' },
 ];
 
+const normalizePerSecondMultiplierKey = (key) => {
+  const match = String(key).trim().match(/^resolution-(480|720|1080)p?$/i);
+  return match ? `resolution-${match[1]}P` : key;
+};
+
 const getPositiveMultiplier = (multipliers, key) => {
-  const value = Number(multipliers?.[key]);
-  return Number.isFinite(value) && value > 0 ? value : 1;
+  const normalizedKey = normalizePerSecondMultiplierKey(key);
+  const directValue = Number(multipliers?.[normalizedKey]);
+  if (Number.isFinite(directValue) && directValue > 0) return directValue;
+
+  for (const [candidateKey, value] of Object.entries(multipliers || {})) {
+    if (normalizePerSecondMultiplierKey(candidateKey) !== normalizedKey) {
+      continue;
+    }
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+
+  return 1;
 };
 
 export const calculateModelPrice = ({

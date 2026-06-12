@@ -129,6 +129,25 @@ function formatRatio(ratio: number | undefined): string {
   return ratio.toFixed(4)
 }
 
+function formatRatioValue(value: number, digits = 6): string {
+  if (!Number.isFinite(value)) return '0'
+  return Number(value.toFixed(digits)).toString()
+}
+
+function getPerSecondResolution(other: LogOtherData): {
+  key?: string
+  ratio: number
+} {
+  const key = Object.keys(other)
+    .filter((item) => item.startsWith('resolution-'))
+    .sort()[0] as `resolution-${string}` | undefined
+  const ratio = key ? other[key] : undefined
+  return {
+    key,
+    ratio: ratio != null && Number.isFinite(ratio) && ratio > 0 ? ratio : 1,
+  }
+}
+
 function BillingBreakdown(props: {
   log: UsageLog
   other: LogOtherData
@@ -139,6 +158,8 @@ function BillingBreakdown(props: {
   const isPerCall = isPerCallBilling(other.model_price)
   const isClaude = other.claude === true
   const isTieredExpr = other.billing_mode === 'tiered_expr'
+  const isPerSecond =
+    other.billing_mode === 'per_second' && other.model_price != null
   const tieredSummary = getTieredBillingSummary(other)
 
   const rows: Array<{ label: string; value: string }> = []
@@ -170,6 +191,70 @@ function BillingBreakdown(props: {
         value: t('No matching results'),
       })
     }
+  } else if (isPerSecond) {
+    const seconds = Number(other.seconds)
+    const safeSeconds = Number.isFinite(seconds) && seconds > 0 ? seconds : 0
+    const resolution = getPerSecondResolution(other)
+    const userGR = other.user_group_ratio
+    const isUserGR = userGR != null && Number.isFinite(userGR) && userGR !== -1
+    const effectiveGR = isUserGR ? userGR : other.group_ratio
+    const groupRatio =
+      effectiveGR != null && Number.isFinite(effectiveGR) ? effectiveGR : 1
+    const unitPrice = other.model_price! * resolution.ratio
+    const total = unitPrice * safeSeconds * groupRatio
+    const ratioLabel = t(isUserGR ? 'User Exclusive Ratio' : 'Group Ratio')
+    const unitPriceText = `${fmtPrice(unitPrice)} / s`
+    const rawPriceText = `${fmtPrice(other.model_price!)} / ${t('Per-call')}`
+    rows.push({ label: t('Billing Mode'), value: t('Per-second') })
+    rows.push({
+      label: t('Log Details'),
+      value: `${t('Model Price')} ${rawPriceText}, ${ratioLabel} ${formatRatioValue(groupRatio)}x`,
+    })
+    rows.push({
+      label: t('Model Price'),
+      value: `${unitPriceText}${
+        resolution.key
+          ? ` (${resolution.key}: ${formatRatioValue(resolution.ratio)}x)`
+          : ''
+      }`,
+    })
+    rows.push({
+      label: t('Seconds'),
+      value: formatRatioValue(safeSeconds),
+    })
+    if (resolution.key) {
+      rows.push({
+        label: t('Resolution'),
+        value: `${resolution.key} (${formatRatioValue(resolution.ratio)}x)`,
+      })
+    }
+    rows.push({
+      label: ratioLabel,
+      value: `${formatRatioValue(groupRatio)}x`,
+    })
+    rows.push({
+      label: t('Billing Process'),
+      value: resolution.key
+        ? `${t('Per-second')} (${resolution.key}) : ${unitPriceText}`
+        : `${t('Per-second')} : ${unitPriceText}`,
+    })
+    rows.push({
+      label: t('Billing Formula'),
+      value: `${fmtPrice(unitPrice)} * ${t('Seconds')} ${formatRatioValue(
+        safeSeconds
+      )} * ${ratioLabel} ${formatRatioValue(groupRatio)} = ${fmtPrice(total)}`,
+    })
+    rows.push({
+      label: t('Total Cost'),
+      value: formatLogQuota(log.quota),
+    })
+    return (
+      <DetailSection label={t('Billing Details')}>
+        {rows.map((row, idx) => (
+          <DetailRow key={idx} label={row.label} value={row.value} mono />
+        ))}
+      </DetailSection>
+    )
   } else if (isPerCall) {
     rows.push({ label: t('Billing Mode'), value: t('Per-call') })
     if (other.model_price != null) {
@@ -1010,7 +1095,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
           {/* Content */}
           {details && (
             <div className='space-y-1.5'>
-              <Label className='text-xs font-semibold'>{t('Content')}</Label>
+              <Label className='text-xs font-semibold'>
+                {isConsume ? t('Other Details') : t('Content')}
+              </Label>
               <div className='bg-muted/30 relative min-w-0 overflow-hidden rounded-md border p-2.5'>
                 <Button
                   variant='ghost'

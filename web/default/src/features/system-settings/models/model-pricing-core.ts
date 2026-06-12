@@ -92,6 +92,7 @@ export const EMPTY_LANE_ENABLED: Record<LaneKey, boolean> = {
 }
 
 export const PER_SECOND_RESOLUTION_ROWS = [
+  { key: 'resolution-480P', label: '480P' },
   { key: 'resolution-720P', label: '720P' },
   { key: 'resolution-1080P', label: '1080P' },
 ] as const

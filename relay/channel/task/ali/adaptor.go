@@ -367,7 +367,7 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 	aliReq := &AliVideoRequest{
 		Model: upstreamModel,
 		Input: AliVideoInput{
-			Prompt: req.Prompt,
+			Prompt: req.EffectivePrompt(),
 			ImgURL: req.InputReference,
 		},
 		Parameters: &AliVideoParameters{
@@ -377,7 +377,9 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 	}
 
 	// 处理分辨率映射
-	if req.Size != "" {
+	if req.Resolution != "" && !strings.Contains(req.Model, "t2v") {
+		aliReq.Parameters.Resolution = normalizeAliResolution(req.Resolution)
+	} else if req.Size != "" {
 		// text to video size must be contained *
 		if strings.Contains(req.Model, "t2v") && !strings.Contains(req.Size, "*") {
 			return nil, fmt.Errorf("invalid size: %s, example: %s", req.Size, "1920*1080")
@@ -461,7 +463,7 @@ func (a *TaskAdaptor) convertToAliRequestV2(info *relaycommon.RelayInfo, req rel
 	aliReq := &aliVideoRequestV2{
 		Model: upstreamModel,
 		Input: aliVideoInputV2{
-			Prompt: req.Prompt,
+			Prompt: req.EffectivePrompt(),
 		},
 		Parameters: &aliVideoParametersV2{
 			PromptExtend: lo.ToPtr(true),
@@ -492,6 +494,12 @@ func (a *TaskAdaptor) convertToAliRequestV2(info *relaycommon.RelayInfo, req rel
 		applyAliSize(upstreamModel, req.Size, aliReq.Parameters)
 	} else {
 		applyAliDefaultSize(upstreamModel, aliReq.Parameters)
+	}
+	if req.Resolution != "" {
+		aliReq.Parameters.Resolution = normalizeAliResolution(req.Resolution)
+		if isAliKlingModel(upstreamModel) {
+			applyAliSize(upstreamModel, req.Resolution, aliReq.Parameters)
+		}
 	}
 
 	duration, err := aliDurationFromRequest(req)
@@ -874,7 +882,7 @@ func applyAliInputOverride(source *aliVideoInputV2, target *aliVideoInputV2) {
 
 func applyAliParameterOverride(source *aliVideoParametersV2, target *aliVideoParametersV2) {
 	if source.Resolution != "" {
-		target.Resolution = source.Resolution
+		target.Resolution = normalizeAliResolution(source.Resolution)
 	}
 	if source.Size != "" {
 		target.Size = source.Size
@@ -1038,28 +1046,13 @@ func isAliKlingModel(modelName string) bool {
 }
 
 func defaultAliResolution(modelName string) string {
-	if strings.HasPrefix(modelName, "wan2.7") {
-		return "1080P"
-	}
-	if strings.HasPrefix(modelName, "kling/") || strings.HasPrefix(modelName, "wan2.6") || strings.HasPrefix(modelName, "wan2.5") {
-		return "1080P"
-	}
-	if strings.HasPrefix(modelName, "wan2.2-i2v-flash") {
-		return "720P"
-	}
-	if strings.HasPrefix(modelName, "wan2.2-i2v-plus") {
-		return "1080P"
-	}
 	return "720P"
 }
 
 func normalizeAliResolution(value string) string {
-	resolution := strings.ToUpper(strings.TrimSpace(value))
-	if resolution == "" {
-		return ""
-	}
-	if !strings.HasSuffix(resolution, "P") {
-		resolution += "P"
+	resolution, err := taskcommon.NormalizeVideoResolution(value)
+	if err != nil {
+		return strings.ToUpper(strings.TrimSpace(value))
 	}
 	return resolution
 }

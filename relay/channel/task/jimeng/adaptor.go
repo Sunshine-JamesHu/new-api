@@ -103,9 +103,6 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	reqKey := resolveJimengReqKey(resolveMappedJimengModel(c, req.Model), req.Metadata)
 	action := jimengActionForReqKey(reqKey)
 	info.Action = action
-	if action == constant.TaskActionTextGenerate && !metadataHasString(req.Metadata, "prompt") {
-		return service.TaskErrorWrapperLocal(fmt.Errorf("metadata.prompt is required for jimeng text-to-video"), "missing_prompt", http.StatusBadRequest)
-	}
 	return nil
 }
 
@@ -441,6 +438,11 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, in
 	if req.Metadata != nil {
 		for key, value := range req.Metadata {
 			payload[key] = value
+		}
+	}
+	if !metadataHasString(payload, "prompt") {
+		if prompt := req.EffectivePrompt(); prompt != "" {
+			payload["prompt"] = prompt
 		}
 	}
 

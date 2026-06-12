@@ -28,6 +28,7 @@ export const PRICE_SUFFIX = '$/1M tokens';
 export const PER_SECOND_PRICE_SUFFIX = '$/秒';
 const EMPTY_CANDIDATE_MODEL_NAMES = [];
 export const PER_SECOND_RESOLUTION_ROWS = [
+  { key: 'resolution-480P', label: '480P' },
   { key: 'resolution-720P', label: '720P' },
   { key: 'resolution-1080P', label: '1080P' },
 ];
@@ -82,6 +83,24 @@ const toNumberOrNull = (value) => {
   return Number.isFinite(num) ? num : null;
 };
 
+const normalizePerSecondMultiplierKey = (key) => {
+  const match = String(key).trim().match(/^resolution-(480|720|1080)p?$/i);
+  return match ? `resolution-${match[1]}P` : key;
+};
+
+const getPerSecondMultiplier = (multipliers, key) => {
+  const normalizedKey = normalizePerSecondMultiplierKey(key);
+  const direct = toNumberOrNull(multipliers?.[normalizedKey]);
+  if (direct !== null) return direct;
+
+  for (const [candidateKey, value] of Object.entries(multipliers || {})) {
+    if (normalizePerSecondMultiplierKey(candidateKey) === normalizedKey) {
+      return toNumberOrNull(value);
+    }
+  }
+  return null;
+};
+
 const formatNumber = (value) => {
   const num = toNumberOrNull(value);
   if (num === null) {
@@ -118,7 +137,7 @@ const createPerSecondPrices = (fixedPrice, multipliers = {}) => {
   const basePrice = toNumberOrNull(fixedPrice);
   return Object.fromEntries(
     PER_SECOND_RESOLUTION_ROWS.map(({ key }) => {
-      const multiplier = toNumberOrNull(multipliers[key]);
+      const multiplier = getPerSecondMultiplier(multipliers, key);
       if (key === 'resolution-720P' && basePrice !== null && multiplier === null) {
         return [key, formatNumber(basePrice)];
       }

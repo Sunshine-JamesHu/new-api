@@ -3,6 +3,8 @@ package gemini
 import (
 	"strconv"
 	"strings"
+
+	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 )
 
 // ParseVeoDurationSeconds extracts durationSeconds from metadata.
@@ -39,9 +41,20 @@ func ParseVeoResolution(metadata map[string]any) string {
 		return "720p"
 	}
 	if s, ok := v.(string); ok && s != "" {
-		return strings.ToLower(s)
+		return NormalizeVeoResolution(s)
 	}
 	return "720p"
+}
+
+func NormalizeVeoResolution(value string) string {
+	if strings.EqualFold(strings.TrimSpace(value), "4k") {
+		return "4k"
+	}
+	resolution, err := taskcommon.NormalizeVideoResolutionLower(value)
+	if err == nil && resolution != "" {
+		return resolution
+	}
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 // ResolveVeoDuration returns the effective duration in seconds.
@@ -64,8 +77,11 @@ func ResolveVeoDuration(metadata map[string]any, stdDuration int, stdSeconds str
 }
 
 // ResolveVeoResolution returns the effective resolution string (lowercase).
-// Priority: metadata["resolution"] > SizeToVeoResolution(stdSize) > default ("720p").
-func ResolveVeoResolution(metadata map[string]any, stdSize string) string {
+// Priority: stdResolution > metadata["resolution"] > SizeToVeoResolution(stdSize) > default ("720p").
+func ResolveVeoResolution(metadata map[string]any, stdResolution, stdSize string) string {
+	if stdResolution != "" {
+		return NormalizeVeoResolution(stdResolution)
+	}
 	if metadata != nil {
 		if _, exists := metadata["resolution"]; exists {
 			if r := ParseVeoResolution(metadata); r != "" {
@@ -81,6 +97,9 @@ func ResolveVeoResolution(metadata map[string]any, stdSize string) string {
 
 // SizeToVeoResolution converts a "WxH" size string to a Veo resolution label.
 func SizeToVeoResolution(size string) string {
+	if resolution, err := taskcommon.NormalizeVideoResolutionLower(size); err == nil && resolution != "" {
+		return resolution
+	}
 	parts := strings.SplitN(strings.ToLower(size), "x", 2)
 	if len(parts) != 2 {
 		return "720p"

@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/minimax"
 	"github.com/QuantumNous/new-api/relay/channel/moonshot"
 	"github.com/QuantumNous/new-api/relay/channel/task/happyhorse"
+	"github.com/QuantumNous/new-api/relay/channel/task/newapivideo"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
@@ -97,6 +98,14 @@ func init() {
 			OwnedBy: happyhorse.ChannelName,
 		})
 	}
+	for _, modelName := range newapivideo.ModelList {
+		openAIModels = append(openAIModels, dto.OpenAIModels{
+			Id:      modelName,
+			Object:  "model",
+			Created: 1626777600,
+			OwnedBy: newapivideo.ChannelName,
+		})
+	}
 	openAIModelsMap = make(map[string]dto.OpenAIModels)
 	for _, aiModel := range openAIModels {
 		openAIModelsMap[aiModel.Id] = aiModel
@@ -115,6 +124,7 @@ func init() {
 		channelId2Models[i] = adaptor.GetModelList()
 	}
 	channelId2Models[constant.ChannelTypeHappyHorse] = append([]string{}, happyhorse.ModelList...)
+	channelId2Models[constant.ChannelTypeNewApiVideo] = append([]string{}, newapivideo.ModelList...)
 	openAIModels = lo.UniqBy(openAIModels, func(m dto.OpenAIModels) string {
 		return m.Id
 	})

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -25,28 +26,12 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		logContent = fmt.Sprintf("%s，按次计费", logContent)
 	} else if billing_setting.IsPerSecondBilling(info.OriginModelName) {
 		logContent = fmt.Sprintf("%s，按秒计费", logContent)
-		if len(info.PriceData.OtherRatios) > 0 {
-			var contents []string
-			for key, ra := range info.PriceData.OtherRatios {
-				if 1.0 != ra {
-					contents = append(contents, fmt.Sprintf("%s: %.2f", key, ra))
-				}
-			}
-			if len(contents) > 0 {
-				logContent = fmt.Sprintf("%s，计算参数：%s", logContent, strings.Join(contents, ", "))
-			}
+		if resolution := formatTaskBillingResolution(info.PriceData.OtherRatios); resolution != "" {
+			logContent = fmt.Sprintf("%s，计费分辨率：%s", logContent, resolution)
 		}
 	} else {
-		if len(info.PriceData.OtherRatios) > 0 {
-			var contents []string
-			for key, ra := range info.PriceData.OtherRatios {
-				if 1.0 != ra {
-					contents = append(contents, fmt.Sprintf("%s: %.2f", key, ra))
-				}
-			}
-			if len(contents) > 0 {
-				logContent = fmt.Sprintf("%s, 计算参数：%s", logContent, strings.Join(contents, ", "))
-			}
+		if contents := formatTaskOtherRatios(info.PriceData.OtherRatios); len(contents) > 0 {
+			logContent = fmt.Sprintf("%s, 计算参数：%s", logContent, strings.Join(contents, ", "))
 		}
 	}
 	other := make(map[string]interface{})
@@ -58,6 +43,9 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	}
 	if info.PriceData.ModelRatio > 0 {
 		other["model_ratio"] = info.PriceData.ModelRatio
+	}
+	for key, ratio := range info.PriceData.OtherRatios {
+		other[key] = ratio
 	}
 	other["group_ratio"] = info.PriceData.GroupRatioInfo.GroupRatio
 	if info.PriceData.GroupRatioInfo.HasSpecialRatio {
@@ -79,6 +67,34 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	})
 	model.UpdateUserUsedQuotaAndRequestCount(info.UserId, info.PriceData.Quota)
 	model.UpdateChannelUsedQuota(info.ChannelId, info.PriceData.Quota)
+}
+
+func formatTaskBillingResolution(ratios map[string]float64) string {
+	for key := range ratios {
+		if strings.HasPrefix(key, "resolution-") {
+			return strings.TrimPrefix(key, "resolution-")
+		}
+	}
+	return ""
+}
+
+func formatTaskOtherRatios(ratios map[string]float64) []string {
+	if len(ratios) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(ratios))
+	for key, ratio := range ratios {
+		if ratio == 1.0 {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	contents := make([]string, 0, len(keys))
+	for _, key := range keys {
+		contents = append(contents, fmt.Sprintf("%s: %.2f", key, ratios[key]))
+	}
+	return contents
 }
 
 // ---------------------------------------------------------------------------

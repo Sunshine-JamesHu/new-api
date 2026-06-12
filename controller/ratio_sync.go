@@ -58,6 +58,20 @@ func valuesEqual(a, b interface{}) bool {
 	if aok && bok {
 		return nearlyEqual(af, bf)
 	}
+	aMap, aok := a.(map[string]float64)
+	bMap, bok := b.(map[string]float64)
+	if aok && bok {
+		if len(aMap) != len(bMap) {
+			return false
+		}
+		for key, aValue := range aMap {
+			bValue, ok := bMap[key]
+			if !ok || !nearlyEqual(aValue, bValue) {
+				return false
+			}
+		}
+		return true
+	}
 	return a == b
 }
 
@@ -100,6 +114,10 @@ func valueMap(value any) map[string]any {
 		return lo.MapValues(typed, func(value float64, _ string) any { return value })
 	case map[string]string:
 		return lo.MapValues(typed, func(value string, _ string) any { return value })
+	case map[string]map[string]float64:
+		return lo.MapValues(typed, func(value map[string]float64, _ string) any { return value })
+	case map[string]map[string]any:
+		return lo.MapValues(typed, func(value map[string]any, _ string) any { return value })
 	default:
 		return nil
 	}
@@ -123,7 +141,31 @@ func asFloat64(value any) (float64, bool) {
 	}
 }
 
+func asFloat64Map(value any) (map[string]float64, bool) {
+	switch typed := value.(type) {
+	case map[string]float64:
+		return typed, true
+	case map[string]any:
+		converted := make(map[string]float64, len(typed))
+		for key, value := range typed {
+			parsed, ok := asFloat64(value)
+			if !ok {
+				continue
+			}
+			converted[key] = parsed
+		}
+		return converted, len(converted) > 0
+	default:
+		return nil, false
+	}
+}
+
 func normalizeSyncValue(field string, value any) any {
+	if field == billing_setting.PerSecondMultipliersField {
+		if multipliers, ok := asFloat64Map(value); ok {
+			return billing_setting.NormalizePerSecondMultipliers(multipliers)
+		}
+	}
 	if numericPricingSyncFields[field] {
 		if parsed, ok := asFloat64(value); ok {
 			return parsed
@@ -422,7 +464,9 @@ func FetchUpstreamRatios(c *gin.Context) {
 				} else if item.BillingMode == billing_setting.BillingModePerSecond {
 					billingModeMap[item.ModelName] = billing_setting.BillingModePerSecond
 					if len(item.PerSecondMultipliers) > 0 {
-						perSecondMultipliersMap[item.ModelName] = item.PerSecondMultipliers
+						if multipliers := billing_setting.NormalizePerSecondMultipliers(item.PerSecondMultipliers); len(multipliers) > 0 {
+							perSecondMultipliersMap[item.ModelName] = multipliers
+						}
 					}
 				}
 				if item.QuotaType == 1 {

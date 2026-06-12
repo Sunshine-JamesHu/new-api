@@ -699,11 +699,70 @@ type TaskSubmitReq struct {
 }
 
 func (t *TaskSubmitReq) GetPrompt() string {
-	return t.Prompt
+	return t.EffectivePrompt()
 }
 
 func (t *TaskSubmitReq) HasImage() bool {
 	return len(t.Images) > 0
+}
+
+func (t *TaskSubmitReq) MetadataInputPrompt() string {
+	if input, ok := mapValue(t.Metadata, "input"); ok {
+		if prompt, ok := input["prompt"].(string); ok {
+			return strings.TrimSpace(prompt)
+		}
+	}
+	return ""
+}
+
+func (t *TaskSubmitReq) MetadataPrompt() string {
+	if prompt, ok := t.Metadata["prompt"].(string); ok {
+		return strings.TrimSpace(prompt)
+	}
+	return ""
+}
+
+func (t *TaskSubmitReq) MetadataContentPrompt() string {
+	content, ok := t.Metadata["content"].([]interface{})
+	if !ok {
+		return ""
+	}
+	for _, item := range content {
+		itemMap, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		itemType, _ := itemMap["type"].(string)
+		text, _ := itemMap["text"].(string)
+		if strings.TrimSpace(text) != "" && (itemType == "" || itemType == "text") {
+			return strings.TrimSpace(text)
+		}
+	}
+	return ""
+}
+
+func (t *TaskSubmitReq) EffectivePrompt() string {
+	if prompt := t.MetadataInputPrompt(); prompt != "" {
+		return prompt
+	}
+	if prompt := t.MetadataPrompt(); prompt != "" {
+		return prompt
+	}
+	if prompt := t.MetadataContentPrompt(); prompt != "" {
+		return prompt
+	}
+	if prompt, ok := t.Input["prompt"].(string); ok && strings.TrimSpace(prompt) != "" {
+		return strings.TrimSpace(prompt)
+	}
+	return strings.TrimSpace(t.Prompt)
+}
+
+func mapValue(source map[string]interface{}, key string) (map[string]interface{}, bool) {
+	if source == nil {
+		return nil, false
+	}
+	value, ok := source[key].(map[string]interface{})
+	return value, ok
 }
 
 func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {

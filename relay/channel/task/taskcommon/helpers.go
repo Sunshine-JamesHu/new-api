@@ -62,14 +62,10 @@ func ResolveVideoBillingDuration(req relaycommon.TaskSubmitReq, defaultSeconds i
 	return defaultSeconds
 }
 
-// ResolveVideoBillingResolution normalizes the outer resolution billing tier.
-// Empty input falls back to defaultResolution. Only 720P and 1080P are accepted.
-func ResolveVideoBillingResolution(req relaycommon.TaskSubmitReq, defaultResolution string) (string, error) {
-	resolution := strings.TrimSpace(req.Resolution)
-	if resolution == "" {
-		resolution = defaultResolution
-	}
-	resolution = strings.ToUpper(resolution)
+// NormalizeVideoResolution normalizes 480/720/1080 video resolution aliases.
+// Accepted inputs include "720", "720p", and "720P"; output is "720P".
+func NormalizeVideoResolution(value string) (string, error) {
+	resolution := strings.ToUpper(strings.TrimSpace(value))
 	if resolution == "" {
 		return "", nil
 	}
@@ -77,11 +73,37 @@ func ResolveVideoBillingResolution(req relaycommon.TaskSubmitReq, defaultResolut
 		resolution += "P"
 	}
 	switch resolution {
-	case "720P", "1080P":
+	case "480P", "720P", "1080P":
 		return resolution, nil
 	default:
-		return "", fmt.Errorf("invalid resolution: %s", req.Resolution)
+		return "", fmt.Errorf("invalid resolution: %s", value)
 	}
+}
+
+func NormalizeVideoResolutionLower(value string) (string, error) {
+	resolution, err := NormalizeVideoResolution(value)
+	if err != nil || resolution == "" {
+		return resolution, err
+	}
+	return strings.ToLower(resolution), nil
+}
+
+func IsVideoResolutionAlias(value string) bool {
+	_, err := NormalizeVideoResolution(value)
+	return err == nil && strings.TrimSpace(value) != ""
+}
+
+// ResolveVideoBillingResolution normalizes the outer resolution billing tier.
+// Empty input falls back to defaultResolution. Only 480P, 720P and 1080P are accepted.
+func ResolveVideoBillingResolution(req relaycommon.TaskSubmitReq, defaultResolution string) (string, error) {
+	resolution := strings.TrimSpace(req.Resolution)
+	if resolution == "" && IsVideoResolutionAlias(req.Size) {
+		resolution = req.Size
+	}
+	if resolution == "" {
+		resolution = defaultResolution
+	}
+	return NormalizeVideoResolution(resolution)
 }
 
 // EncodeLocalTaskID encodes an upstream operation name to a URL-safe base64 string.
