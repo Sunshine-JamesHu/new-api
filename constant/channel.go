@@ -55,6 +55,7 @@ const (
 	ChannelTypeSora           = 55
 	ChannelTypeReplicate      = 56
 	ChannelTypeCodex          = 57
+	ChannelTypeAdvancedCustom = 58
 	ChannelTypeHappyHorse     = 998
 	ChannelTypeDummy          = 1000 // this one is only for count, do not add any channel after this
 
@@ -186,6 +187,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeSora:           "Sora",
 	ChannelTypeReplicate:      "Replicate",
 	ChannelTypeCodex:          "ChatGPT Subscription (Codex)",
+	ChannelTypeAdvancedCustom: "Advanced Custom",
 	ChannelTypeHappyHorse:     "HappyHorse",
 }
 
