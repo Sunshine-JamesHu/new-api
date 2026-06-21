@@ -38,3 +38,4 @@ skills-lock.json
 tmp/
 .playwright-mcp
 .agents/skills/owl-ai/
+.agents/skills/owl-ai.zip
