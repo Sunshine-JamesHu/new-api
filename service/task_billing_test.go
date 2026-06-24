@@ -55,6 +55,7 @@ func TestMain(m *testing.M) {
 		&model.AffiliateRebate{},
 		&model.UserSubscription{},
 		&model.SystemTask{},
+		&model.SystemTaskLock{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -76,6 +77,7 @@ func truncate(t *testing.T) {
 	require.NoError(t, model.DB.Exec("DELETE FROM top_ups").Error)
 	require.NoError(t, model.DB.Exec("DELETE FROM affiliate_rebates").Error)
 	require.NoError(t, model.DB.Exec("DELETE FROM user_subscriptions").Error)
+	require.NoError(t, model.DB.Exec("DELETE FROM system_task_locks").Error)
 	require.NoError(t, model.DB.Exec("DELETE FROM system_tasks").Error)
 }
 
