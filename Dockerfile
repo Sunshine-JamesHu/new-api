@@ -16,7 +16,6 @@ COPY web/package.json web/bun.lock ./
 COPY web/default/package.json ./default/package.json
 COPY web/classic/package.json ./classic/package.json
 RUN bun install --filter ./classic --frozen-lockfile
-RUN rm -rf node_modules/date-fns && cp -R node_modules/@douyinfe/semi-ui/node_modules/date-fns node_modules/date-fns
 COPY ./web/classic ./classic
 COPY ./VERSION /build/VERSION
 RUN cd classic && VITE_REACT_APP_VERSION=$(cat /build/VERSION) bun run build
