@@ -93,6 +93,8 @@ export function Wallet(props: WalletProps) {
   } = usePayment()
   const {
     affiliateLink,
+    pendingRebateQuota,
+    rebates,
     loading: affiliateLoading,
     transferQuota,
     transferring,
@@ -317,6 +319,8 @@ export function Wallet(props: WalletProps) {
             <AffiliateRewardsCard
               user={user}
               affiliateLink={affiliateLink}
+              pendingRebateQuota={pendingRebateQuota}
+              rebates={rebates}
               onTransfer={() => setTransferDialogOpen(true)}
               complianceConfirmed={
                 topupInfo?.payment_compliance_confirmed !== false

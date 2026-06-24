@@ -427,6 +427,10 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 		if err != nil {
 			return err
 		}
+		actualConsume := quota + preConsumedQuota
+		if actualConsume > 0 {
+			ConsumeAffiliateRebateMaturity(relayInfo.UserId, actualConsume)
+		}
 	}
 
 	if !relayInfo.IsPlayground {

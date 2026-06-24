@@ -581,6 +581,7 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 	// 0. 固定价任务不做差额结算
 	if bc := task.PrivateData.BillingContext; bc != nil && (bc.PerCallBilling || bc.BillingMode == billing_setting.BillingModePerSecond) {
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 固定价计费，跳过差额结算", task.TaskID))
+		taskMatureAffiliateRebate(task, task.Quota)
 		return
 	}
 	// 1. 优先让 adaptor 决定最终额度
@@ -589,9 +590,9 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 		return
 	}
 	// 2. 回退到 token 重算
-	if taskResult.TotalTokens > 0 {
-		RecalculateTaskQuotaByTokens(ctx, task, taskResult.TotalTokens)
+	if taskResult.TotalTokens > 0 && RecalculateTaskQuotaByTokens(ctx, task, taskResult.TotalTokens) {
 		return
 	}
 	// 3. 无调整，保持预扣额度
+	taskMatureAffiliateRebate(task, task.Quota)
 }

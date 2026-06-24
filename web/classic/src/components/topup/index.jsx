@@ -105,6 +105,8 @@ const TopUp = () => {
 
   // 邀请相关状态
   const [affLink, setAffLink] = useState('');
+  const [pendingRebateQuota, setPendingRebateQuota] = useState(0);
+  const [affiliateRebates, setAffiliateRebates] = useState([]);
   const [openTransfer, setOpenTransfer] = useState(false);
   const [transferAmount, setTransferAmount] = useState(0);
 
@@ -736,6 +738,19 @@ const TopUp = () => {
     }
   };
 
+  const getAffiliateRebates = async () => {
+    try {
+      const res = await API.get('/api/user/aff/rebates?p=1&page_size=20');
+      const { success, data } = res.data;
+      if (success) {
+        setPendingRebateQuota(data?.pending_quota || 0);
+        setAffiliateRebates(data?.items || []);
+      }
+    } catch (error) {
+      // ignore
+    }
+  };
+
   // 划转邀请额度
   const transfer = async () => {
     if (transferAmount < getQuotaPerUnit()) {
@@ -750,6 +765,7 @@ const TopUp = () => {
       showSuccess(message);
       setOpenTransfer(false);
       getUserQuota().then();
+      getAffiliateRebates().then();
     } else {
       showError(message);
     }
@@ -773,6 +789,7 @@ const TopUp = () => {
   useEffect(() => {
     // 始终获取最新用户数据，确保余额等统计信息准确
     getUserQuota().then();
+    getAffiliateRebates().then();
     setTransferAmount(getQuotaPerUnit());
   }, []);
 
@@ -1023,6 +1040,8 @@ const TopUp = () => {
           renderQuota={renderQuota}
           setOpenTransfer={setOpenTransfer}
           affLink={affLink}
+          pendingRebateQuota={pendingRebateQuota}
+          affiliateRebates={affiliateRebates}
           handleAffLinkClick={handleAffLinkClick}
           complianceConfirmed={topupInfo.payment_compliance_confirmed !== false}
         />

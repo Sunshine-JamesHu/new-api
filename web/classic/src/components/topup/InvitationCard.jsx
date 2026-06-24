@@ -37,6 +37,8 @@ const InvitationCard = ({
   renderQuota,
   setOpenTransfer,
   affLink,
+  pendingRebateQuota = 0,
+  affiliateRebates = [],
   handleAffLinkClick,
   complianceConfirmed = true,
 }) => {
@@ -105,7 +107,7 @@ const InvitationCard = ({
                 )}
 
                 {/* 统计数据 */}
-                <div className='grid grid-cols-3 gap-6 mt-4'>
+                <div className='grid grid-cols-4 gap-4 mt-4'>
                   {/* 待使用收益 */}
                   <div className='text-center'>
                     <div
@@ -127,6 +129,30 @@ const InvitationCard = ({
                         }}
                       >
                         {t('待使用收益')}
+                      </Text>
+                    </div>
+                  </div>
+
+                  <div className='text-center'>
+                    <div
+                      className='text-base sm:text-2xl font-bold mb-2'
+                      style={{ color: 'white' }}
+                    >
+                      {renderQuota(pendingRebateQuota)}
+                    </div>
+                    <div className='flex items-center justify-center text-sm'>
+                      <TrendingUp
+                        size={14}
+                        className='mr-1'
+                        style={{ color: 'rgba(255,255,255,0.8)' }}
+                      />
+                      <Text
+                        style={{
+                          color: 'rgba(255,255,255,0.8)',
+                          fontSize: '12px',
+                        }}
+                      >
+                        {t('待确认收益')}
                       </Text>
                     </div>
                   </div>
@@ -203,6 +229,39 @@ const InvitationCard = ({
               </Button>
             }
           />
+        </Card>
+
+        <Card
+          className='!rounded-xl w-full'
+          title={<Text type='tertiary'>{t('邀请返利明细')}</Text>}
+        >
+          <div className='grid grid-cols-[1fr_1fr_1fr_0.8fr] gap-2 px-2 pb-2 text-xs font-medium'>
+            <span>{t('返利额度')}</span>
+            <span>{t('剩余消耗')}</span>
+            <span>{t('订单号')}</span>
+            <span>{t('状态')}</span>
+          </div>
+          {affiliateRebates.length > 0 ? (
+            affiliateRebates.slice(0, 5).map((rebate) => (
+              <div
+                key={rebate.id}
+                className='grid grid-cols-[1fr_1fr_1fr_0.8fr] gap-2 border-t border-semi-color-border px-2 py-2 text-xs'
+              >
+                <span>{renderQuota(rebate.rebate_quota || 0)}</span>
+                <span>{renderQuota(rebate.remaining_quota || 0)}</span>
+                <span className='truncate'>
+                  {rebate.trade_no || `#${rebate.topup_id}`}
+                </span>
+                <span>
+                  {rebate.status === 'pending' ? t('待确认') : t('已结算')}
+                </span>
+              </div>
+            ))
+          ) : (
+            <div className='border-t border-semi-color-border px-2 py-3 text-xs text-semi-color-text-2'>
+              {t('暂无邀请返利记录')}
+            </div>
+          )}
         </Card>
 
         {/* 奖励说明 */}

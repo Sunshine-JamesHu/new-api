@@ -427,7 +427,6 @@ export default function SettingsSidebarModulesUser() {
                       : 'opacity-50'
                   }`}
                   bodyStyle={{ padding: '16px' }}
-                  hoverable
                 >
                   <div className='flex justify-between items-center h-full'>
                     <div className='flex-1 text-left'>

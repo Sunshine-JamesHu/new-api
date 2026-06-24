@@ -24,7 +24,6 @@ import {
   Form,
   Row,
   Spin,
-  DatePicker,
   Typography,
   Modal,
 } from '@douyinfe/semi-ui';
@@ -218,18 +217,29 @@ export default function SettingsLog(props) {
               </Col>
               <Col xs={24} sm={12} md={8} lg={8} xl={8}>
                 <Spin spinning={loadingCleanHistoryLog}>
-                  <Form.DatePicker
-                    label={t('清除历史日志')}
-                    field={'historyTimestamp'}
-                    type='dateTime'
-                    inputReadOnly={true}
-                    onChange={(value) => {
-                      setInputs({
-                        ...inputs,
-                        historyTimestamp: value,
-                      });
-                    }}
-                  />
+                  <Form.Slot label={t('清除历史日志')}>
+                    <input
+                      type='datetime-local'
+                      value={dayjs(inputs.historyTimestamp).format(
+                        'YYYY-MM-DDTHH:mm',
+                      )}
+                      onChange={(event) => {
+                        setInputs({
+                          ...inputs,
+                          historyTimestamp: event.target.value,
+                        });
+                      }}
+                      style={{
+                        width: '100%',
+                        height: 32,
+                        border: '1px solid var(--semi-color-border)',
+                        borderRadius: 3,
+                        padding: '0 12px',
+                        background: 'var(--semi-color-bg-0)',
+                        color: 'var(--semi-color-text-0)',
+                      }}
+                    />
+                  </Form.Slot>
                   <Text
                     type='tertiary'
                     size='small'

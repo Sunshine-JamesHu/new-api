@@ -270,7 +270,7 @@ const SiderBar = ({ onNavigate = () => {} }) => {
           updateRouterMapWithChats(chats);
         }
       } catch (e) {
-        showError('聊天数据解析失败');
+        localStorage.removeItem('chats');
       }
     }
   }, []);
@@ -518,7 +518,7 @@ const SiderBar = ({ onNavigate = () => {} }) => {
               />
             }
             onClick={toggleCollapsed}
-            icononly={collapsed}
+            {...(collapsed ? { iconOnly: true } : {})}
             style={
               collapsed
                 ? { width: 36, height: 24, padding: 0 }

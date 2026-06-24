@@ -21,8 +21,13 @@ import i18next from 'i18next'
 import { toast } from 'sonner'
 import { getSelf } from '@/lib/api'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { getAffiliateCode, transferAffiliateQuota } from '../api'
+import {
+  getAffiliateCode,
+  getAffiliateRebates,
+  transferAffiliateQuota,
+} from '../api'
 import { generateAffiliateLink } from '../lib'
+import type { AffiliateRebateRecord } from '../types'
 
 // ============================================================================
 // Affiliate Hook
@@ -33,6 +38,8 @@ export function useAffiliate() {
   const [affiliateLink, setAffiliateLink] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [transferring, setTransferring] = useState(false)
+  const [rebates, setRebates] = useState<AffiliateRebateRecord[]>([])
+  const [pendingRebateQuota, setPendingRebateQuota] = useState(0)
   const { copyToClipboard } = useCopyToClipboard()
 
   // Fetch affiliate code
@@ -54,6 +61,19 @@ export function useAffiliate() {
     }
   }, [])
 
+  const fetchAffiliateRebates = useCallback(async () => {
+    try {
+      const response = await getAffiliateRebates(1, 20)
+      if (response.success && response.data) {
+        setRebates(response.data.items || [])
+        setPendingRebateQuota(response.data.pending_quota || 0)
+      }
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to fetch affiliate rebates:', error)
+    }
+  }, [])
+
   // Copy affiliate link
   const copyAffiliateLink = useCallback(() => {
     copyToClipboard(affiliateLink)
@@ -68,6 +88,7 @@ export function useAffiliate() {
       if (response.success) {
         toast.success(response.message || i18next.t('Transfer successful'))
         await getSelf()
+        await fetchAffiliateRebates()
         return true
       }
 
@@ -83,15 +104,19 @@ export function useAffiliate() {
 
   useEffect(() => {
     fetchAffiliateCode()
-  }, [fetchAffiliateCode])
+    fetchAffiliateRebates()
+  }, [fetchAffiliateCode, fetchAffiliateRebates])
 
   return {
     affiliateCode,
     affiliateLink,
     loading,
     transferring,
+    rebates,
+    pendingRebateQuota,
     copyAffiliateLink,
     transferQuota,
     refetch: fetchAffiliateCode,
+    refetchRebates: fetchAffiliateRebates,
   }
 }

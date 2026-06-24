@@ -388,6 +388,7 @@ func EpayNotify(c *gin.Context) {
 				topUp.PaymentMethod = verifyInfo.Type
 			}
 			topUp.Status = common.TopUpStatusSuccess
+			topUp.CompleteTime = common.GetTimestamp()
 			err := topUp.Update()
 			if err != nil {
 				logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 更新充值订单失败 trade_no=%s user_id=%d client_ip=%s error=%q topup=%q", topUp.TradeNo, topUp.UserId, c.ClientIP(), err.Error(), common.GetJsonString(topUp)))
@@ -401,6 +402,10 @@ func EpayNotify(c *gin.Context) {
 			err = model.IncreaseUserQuota(topUp.UserId, quotaToAdd, true)
 			if err != nil {
 				logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 更新用户额度失败 trade_no=%s user_id=%d client_ip=%s quota_to_add=%d error=%q topup=%q", topUp.TradeNo, topUp.UserId, c.ClientIP(), quotaToAdd, err.Error(), common.GetJsonString(topUp)))
+				return
+			}
+			if err := model.CreatePendingAffiliateRebateForTopUp(model.DB, topUp, quotaToAdd); err != nil {
+				logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 创建邀请返利记录失败 trade_no=%s user_id=%d client_ip=%s quota_to_add=%d error=%q", topUp.TradeNo, topUp.UserId, c.ClientIP(), quotaToAdd, err.Error()))
 				return
 			}
 			logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 充值成功 trade_no=%s user_id=%d client_ip=%s quota_to_add=%d money=%.2f topup=%q", topUp.TradeNo, topUp.UserId, c.ClientIP(), quotaToAdd, topUp.Money, common.GetJsonString(topUp)))

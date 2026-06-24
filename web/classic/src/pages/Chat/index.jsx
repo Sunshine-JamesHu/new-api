@@ -35,10 +35,17 @@ const ChatPage = () => {
     if (id) {
       let chats = localStorage.getItem('chats');
       if (chats) {
-        chats = JSON.parse(chats);
-        if (Array.isArray(chats) && chats.length > 0) {
-          for (let k in chats[id]) {
-            link = chats[id][k];
+        try {
+          chats = JSON.parse(chats);
+        } catch (e) {
+          localStorage.removeItem('chats');
+          return '';
+        }
+        const chatConfig = Array.isArray(chats) ? chats[Number(id)] : null;
+        if (chatConfig && typeof chatConfig === 'object') {
+          for (let k in chatConfig) {
+            link = chatConfig[k];
+            if (typeof link !== 'string') continue;
             link = link.replaceAll(
               '{address}',
               encodeURIComponent(serverAddress),

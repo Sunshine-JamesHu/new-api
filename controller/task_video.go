@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel"
 	taskcommon "github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
@@ -128,6 +128,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 
 	// 记录原本的状态，防止重复退款
 	shouldRefund := false
+	affiliateMaturityQuota := 0
 	quota := task.Quota
 	preStatus := task.Status
 
@@ -155,7 +156,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 		if taskResult.TotalTokens > 0 {
 			// 获取模型名称
 			var taskData map[string]interface{}
-			if err := json.Unmarshal(task.Data, &taskData); err == nil {
+			if err := common.Unmarshal(task.Data, &taskData); err == nil {
 				if modelName, ok := taskData["model"].(string); ok && modelName != "" {
 					// 获取模型价格和倍率
 					modelRatio, hasRatioSetting, _ := ratio_setting.GetModelRatio(modelName)
@@ -202,6 +203,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 									model.UpdateUserUsedQuotaAndRequestCount(task.UserId, quotaDelta)
 									model.UpdateChannelUsedQuota(task.ChannelId, quotaDelta)
 									task.Quota = actualQuota // 更新任务记录的实际扣费额度
+									affiliateMaturityQuota = actualQuota
 
 									// 记录消费日志
 									logContent := fmt.Sprintf("视频任务成功补扣费，模型倍率 %.2f，分组倍率 %.2f，tokens %d，预扣费 %s，实际扣费 %s，补扣费 %s",
@@ -223,6 +225,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 									logger.LogError(ctx, fmt.Sprintf("退还预扣费失败: %s", err.Error()))
 								} else {
 									task.Quota = actualQuota // 更新任务记录的实际扣费额度
+									affiliateMaturityQuota = actualQuota
 
 									// 记录退款日志
 									logContent := fmt.Sprintf("视频任务成功退还多扣费用，模型倍率 %.2f，分组倍率 %.2f，tokens %d，预扣费 %s，实际扣费 %s，退还 %s",
@@ -234,11 +237,15 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 								// quotaDelta == 0, 预扣费刚好准确
 								logger.LogInfo(ctx, fmt.Sprintf("视频任务 %s 预扣费准确（%s，tokens：%d）",
 									task.TaskID, logger.LogQuota(actualQuota), taskResult.TotalTokens))
+								affiliateMaturityQuota = actualQuota
 							}
 						}
 					}
 				}
 			}
+		}
+		if affiliateMaturityQuota == 0 {
+			affiliateMaturityQuota = task.Quota
 		}
 	case model.TaskStatusFailure:
 		logger.LogJson(ctx, fmt.Sprintf("Task %s failed", taskId), task)
@@ -276,13 +283,16 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 		logContent := fmt.Sprintf("Video async task failed %s, refund %s", task.TaskID, logger.LogQuota(quota))
 		model.RecordLog(task.UserId, model.LogTypeSystem, logContent)
 	}
+	if affiliateMaturityQuota > 0 && task.PrivateData.BillingSource != service.BillingSourceSubscription {
+		service.ConsumeAffiliateRebateMaturity(task.UserId, affiliateMaturityQuota)
+	}
 
 	return nil
 }
 
 func redactVideoResponseBody(body []byte) []byte {
 	var m map[string]any
-	if err := json.Unmarshal(body, &m); err != nil {
+	if err := common.Unmarshal(body, &m); err != nil {
 		return body
 	}
 	resp, _ := m["response"].(map[string]any)
@@ -299,7 +309,7 @@ func redactVideoResponseBody(body []byte) []byte {
 			}
 		}
 	}
-	b, err := json.Marshal(m)
+	b, err := common.Marshal(m)
 	if err != nil {
 		return body
 	}

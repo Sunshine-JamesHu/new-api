@@ -53,6 +53,10 @@ const quotaSchema = z.object({
   QuotaForInviter: z.coerce.number().min(0),
   QuotaForInvitee: z.coerce.number().min(0),
   TopUpLink: z.string(),
+  payment_setting: z.object({
+    affiliate_rebate_enabled: z.boolean(),
+    affiliate_rebate_rate: z.coerce.number().min(0).max(100),
+  }),
   general_setting: z.object({
     docs_link: z.string(),
   }),
@@ -212,6 +216,61 @@ export function QuotaSettingsSection({
                   </FormControl>
                   <FormDescription>
                     {t('Quota given to invited users')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <SettingsFormGridItem span='full'>
+              <FormField
+                control={form.control}
+                name='payment_setting.affiliate_rebate_enabled'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Enable affiliate rebate')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'When enabled, completed top-ups from invited users create pending rebates for their inviters.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        disabled={updateOption.isPending}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+            </SettingsFormGridItem>
+
+            <FormField
+              control={form.control}
+              name='payment_setting.affiliate_rebate_rate'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Rebate percentage')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={0}
+                      max={100}
+                      step='0.01'
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Percentage of each invited user top-up returned to the inviter after that top-up quota is consumed.'
+                    )}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

@@ -36,6 +36,8 @@ const OperationSetting = () => {
     PreConsumedQuota: 0,
     QuotaForInviter: 0,
     QuotaForInvitee: 0,
+    'payment_setting.affiliate_rebate_enabled': false,
+    'payment_setting.affiliate_rebate_rate': 0,
     'quota_setting.enable_free_model_pre_consume': true,
 
     /* 通用设置 */
