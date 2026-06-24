@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -100,6 +101,51 @@ func TestRechargeWaffoPancake_RejectsMismatchedPaymentMethod(t *testing.T) {
 	require.NotNil(t, topUp)
 	assert.Equal(t, common.TopUpStatusPending, topUp.Status)
 	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, 101))
+}
+
+func TestManualCompleteTopUpDoesNotCreateAffiliateRebate(t *testing.T) {
+	truncateTables(t)
+	originalPaymentSetting := *operation_setting.GetPaymentSetting()
+	originalQuotaPerUnit := common.QuotaPerUnit
+	operation_setting.GetPaymentSetting().AffiliateRebateEnabled = true
+	operation_setting.GetPaymentSetting().AffiliateRebateRate = 20
+	common.QuotaPerUnit = 1000
+	t.Cleanup(func() {
+		*operation_setting.GetPaymentSetting() = originalPaymentSetting
+		common.QuotaPerUnit = originalQuotaPerUnit
+	})
+
+	require.NoError(t, DB.Create(&User{
+		Id:       160,
+		Username: "manual_rebate_inviter",
+		AffCode:  "MANUAL160",
+		Status:   common.UserStatusEnabled,
+	}).Error)
+	require.NoError(t, DB.Create(&User{
+		Id:        161,
+		Username:  "manual_rebate_invitee",
+		AffCode:   "MANUAL161",
+		Status:    common.UserStatusEnabled,
+		InviterId: 160,
+	}).Error)
+	require.NoError(t, DB.Create(&TopUp{
+		UserId:          161,
+		Amount:          1,
+		Money:           1,
+		TradeNo:         "manual-complete-no-rebate",
+		PaymentMethod:   PaymentMethodStripe,
+		PaymentProvider: PaymentProviderStripe,
+		Status:          common.TopUpStatusPending,
+		CreateTime:      time.Now().Unix(),
+	}).Error)
+
+	require.NoError(t, ManualCompleteTopUp("manual-complete-no-rebate", "127.0.0.1"))
+
+	assert.Equal(t, common.TopUpStatusSuccess, getTopUpStatusForPaymentGuardTest(t, "manual-complete-no-rebate"))
+	assert.Equal(t, 1000, getUserQuotaForPaymentGuardTest(t, 161))
+	var count int64
+	require.NoError(t, DB.Model(&AffiliateRebate{}).Count(&count).Error)
+	assert.Equal(t, int64(0), count)
 }
 
 func TestUpdatePendingTopUpStatus_RejectsMismatchedPaymentProvider(t *testing.T) {

@@ -46,6 +46,9 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	}
 	delta := actualQuota - s.preConsumedQuota
 	if delta == 0 {
+		if s.funding.Source() != BillingSourceSubscription && actualQuota > 0 {
+			ConsumeAffiliateRebateMaturity(s.relayInfo.UserId, actualQuota)
+		}
 		s.settled = true
 		return nil
 	}
@@ -73,6 +76,8 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	// 3) 更新 relayInfo 上的订阅 PostDelta（用于日志）
 	if s.funding.Source() == BillingSourceSubscription {
 		s.relayInfo.SubscriptionPostDelta += int64(delta)
+	} else if actualQuota > 0 {
+		ConsumeAffiliateRebateMaturity(s.relayInfo.UserId, actualQuota)
 	}
 	s.settled = true
 	return tokenErr

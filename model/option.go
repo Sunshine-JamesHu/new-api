@@ -152,6 +152,8 @@ func InitOptionMap() {
 	//common.OptionMap["ChatLink"] = common.ChatLink
 	//common.OptionMap["ChatLink2"] = common.ChatLink2
 	common.OptionMap["QuotaPerUnit"] = strconv.FormatFloat(common.QuotaPerUnit, 'f', -1, 64)
+	common.OptionMap["payment_setting.affiliate_rebate_enabled"] = strconv.FormatBool(operation_setting.GetPaymentSetting().AffiliateRebateEnabled)
+	common.OptionMap["payment_setting.affiliate_rebate_rate"] = strconv.FormatFloat(operation_setting.GetAffiliateRebateRate(), 'f', -1, 64)
 	common.OptionMap["RetryTimes"] = strconv.Itoa(common.RetryTimes)
 	common.OptionMap["DataExportInterval"] = strconv.Itoa(common.DataExportInterval)
 	common.OptionMap["DataExportDefaultTime"] = common.DataExportDefaultTime

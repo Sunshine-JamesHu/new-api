@@ -18,27 +18,29 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 export function setStatusData(data) {
+  data = data || {};
+  const setValue = (key, value, fallback = '') => {
+    localStorage.setItem(
+      key,
+      value === undefined || value === null ? fallback : String(value),
+    );
+  };
+
   localStorage.setItem('status', JSON.stringify(data));
-  localStorage.setItem('system_name', data.system_name);
-  localStorage.setItem('logo', data.logo);
-  localStorage.setItem('footer_html', data.footer_html);
-  localStorage.setItem('quota_per_unit', data.quota_per_unit);
+  setValue('system_name', data.system_name, 'New API');
+  setValue('logo', data.logo);
+  setValue('footer_html', data.footer_html);
+  setValue('quota_per_unit', data.quota_per_unit);
   // 兼容：保留旧字段，同时写入新的额度展示类型
-  localStorage.setItem('display_in_currency', data.display_in_currency);
+  setValue('display_in_currency', data.display_in_currency);
   localStorage.setItem('quota_display_type', data.quota_display_type || 'USD');
-  localStorage.setItem('enable_drawing', data.enable_drawing);
-  localStorage.setItem('enable_task', data.enable_task);
-  localStorage.setItem('enable_data_export', data.enable_data_export);
-  localStorage.setItem('chats', JSON.stringify(data.chats));
-  localStorage.setItem(
-    'data_export_default_time',
-    data.data_export_default_time,
-  );
-  localStorage.setItem(
-    'default_collapse_sidebar',
-    data.default_collapse_sidebar,
-  );
-  localStorage.setItem('mj_notify_enabled', data.mj_notify_enabled);
+  setValue('enable_drawing', data.enable_drawing);
+  setValue('enable_task', data.enable_task);
+  setValue('enable_data_export', data.enable_data_export);
+  localStorage.setItem('chats', JSON.stringify(data.chats || []));
+  setValue('data_export_default_time', data.data_export_default_time);
+  setValue('default_collapse_sidebar', data.default_collapse_sidebar);
+  setValue('mj_notify_enabled', data.mj_notify_enabled);
   if (data.chat_link) {
     // localStorage.setItem('chat_link', data.chat_link);
   } else {

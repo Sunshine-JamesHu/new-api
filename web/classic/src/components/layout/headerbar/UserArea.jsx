@@ -40,6 +40,10 @@ const UserArea = ({
   t,
 }) => {
   const dropdownRef = useRef(null);
+  const username =
+    userState?.user?.username || userState?.user?.display_name || 'User';
+  const avatarText = username.slice(0, 1).toUpperCase();
+
   if (isLoading) {
     return (
       <SkeletonWrapper
@@ -123,14 +127,14 @@ const UserArea = ({
           >
             <Avatar
               size='extra-small'
-              color={stringToColor(userState.user.username)}
+              color={stringToColor(username)}
               className='mr-1'
             >
-              {userState.user.username[0].toUpperCase()}
+              {avatarText}
             </Avatar>
             <span className='hidden md:inline'>
               <Typography.Text className='!text-xs !font-medium !text-semi-color-text-1 dark:!text-gray-300 mr-1'>
-                {userState.user.username}
+                {username}
               </Typography.Text>
             </span>
             <ChevronDown

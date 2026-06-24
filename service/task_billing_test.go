@@ -17,6 +17,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -51,6 +52,7 @@ func TestMain(m *testing.M) {
 		&model.Log{},
 		&model.Channel{},
 		&model.TopUp{},
+		&model.AffiliateRebate{},
 		&model.UserSubscription{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
@@ -65,15 +67,14 @@ func TestMain(m *testing.M) {
 
 func truncate(t *testing.T) {
 	t.Helper()
-	t.Cleanup(func() {
-		model.DB.Exec("DELETE FROM tasks")
-		model.DB.Exec("DELETE FROM users")
-		model.DB.Exec("DELETE FROM tokens")
-		model.DB.Exec("DELETE FROM logs")
-		model.DB.Exec("DELETE FROM channels")
-		model.DB.Exec("DELETE FROM top_ups")
-		model.DB.Exec("DELETE FROM user_subscriptions")
-	})
+	require.NoError(t, model.DB.Exec("DELETE FROM tasks").Error)
+	require.NoError(t, model.DB.Exec("DELETE FROM users").Error)
+	require.NoError(t, model.DB.Exec("DELETE FROM tokens").Error)
+	require.NoError(t, model.DB.Exec("DELETE FROM logs").Error)
+	require.NoError(t, model.DB.Exec("DELETE FROM channels").Error)
+	require.NoError(t, model.DB.Exec("DELETE FROM top_ups").Error)
+	require.NoError(t, model.DB.Exec("DELETE FROM affiliate_rebates").Error)
+	require.NoError(t, model.DB.Exec("DELETE FROM user_subscriptions").Error)
 }
 
 func withBillingConfig(t *testing.T, values map[string]string) {
@@ -650,6 +651,63 @@ func TestCASGuardedSettle_Win(t *testing.T) {
 
 	// task.Quota should be updated to actualQuota
 	assert.Equal(t, actualQuota, task.Quota)
+}
+
+func TestCASGuardedSettle_MaturesAffiliateRebate(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+	original := *operation_setting.GetPaymentSetting()
+	operation_setting.GetPaymentSetting().AffiliateRebateEnabled = true
+	operation_setting.GetPaymentSetting().AffiliateRebateRate = 10
+	operation_setting.GetPaymentSetting().ComplianceConfirmed = true
+	operation_setting.GetPaymentSetting().ComplianceTermsVersion = operation_setting.CurrentComplianceTermsVersion
+	t.Cleanup(func() {
+		*operation_setting.GetPaymentSetting() = original
+	})
+
+	const inviterID, inviteeID, channelID = 24, 25, 25
+	require.NoError(t, model.DB.Create(&model.User{
+		Id:       inviterID,
+		Username: "task_inviter",
+		AffCode:  "TASKAFF24",
+		Status:   common.UserStatusEnabled,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.User{
+		Id:        inviteeID,
+		Username:  "task_invitee",
+		AffCode:   "TASKAFF25",
+		Quota:     3000,
+		Status:    common.UserStatusEnabled,
+		InviterId: inviterID,
+	}).Error)
+	seedChannel(t, channelID)
+
+	topUp := &model.TopUp{
+		Id:              2501,
+		UserId:          inviteeID,
+		Amount:          3000,
+		TradeNo:         "task-rebate-mature",
+		PaymentProvider: model.PaymentProviderStripe,
+		Status:          common.TopUpStatusSuccess,
+		CreateTime:      time.Now().Unix(),
+	}
+	require.NoError(t, model.DB.Create(topUp).Error)
+	require.NoError(t, model.CreatePendingAffiliateRebateForTopUp(model.DB, topUp, 3000))
+
+	task := makeTask(inviteeID, channelID, 3000, 0, BillingSourceWallet, 0)
+	task.Status = model.TaskStatus(model.TaskStatusInProgress)
+	require.NoError(t, model.DB.Create(task).Error)
+
+	simulatePollBilling(ctx, task, model.TaskStatus(model.TaskStatusSuccess), 3000)
+
+	var rebate model.AffiliateRebate
+	require.NoError(t, model.DB.Where("top_up_id = ?", topUp.Id).First(&rebate).Error)
+	assert.Equal(t, model.AffiliateRebateStatusSettled, rebate.Status)
+	assert.Equal(t, 0, rebate.RemainingQuota)
+	var inviter model.User
+	require.NoError(t, model.DB.Select("aff_quota", "aff_history").Where("id = ?", inviterID).First(&inviter).Error)
+	assert.Equal(t, 300, inviter.AffQuota)
+	assert.Equal(t, 300, inviter.AffHistoryQuota)
 }
 
 func TestNonTerminalUpdate_NoBilling(t *testing.T) {

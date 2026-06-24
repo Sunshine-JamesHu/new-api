@@ -738,6 +738,10 @@ export function modelToColor(modelName) {
 }
 
 export function stringToColor(str) {
+  if (str === undefined || str === null || str === '') {
+    return colors[0];
+  }
+  str = String(str);
   let sum = 0;
   for (let i = 0; i < str.length; i++) {
     sum += str.charCodeAt(i);

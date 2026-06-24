@@ -244,6 +244,30 @@ export interface UserWalletData {
   group: string
 }
 
+export type AffiliateRebateStatus = 'pending' | 'settled'
+
+export interface AffiliateRebateRecord {
+  id: number
+  topup_id: number
+  trade_no: string
+  inviter_id: number
+  invitee_id: number
+  topup_quota: number
+  remaining_quota: number
+  rebate_quota: number
+  rate_percent: number
+  payment_provider: string
+  status: AffiliateRebateStatus
+  created_at: number
+  settled_at: number
+}
+
+export interface AffiliateRebateHistoryResponse {
+  items: AffiliateRebateRecord[]
+  total: number
+  pending_quota: number
+}
+
 /**
  * Topup record status
  */

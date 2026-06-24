@@ -74,5 +74,8 @@ func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuo
 	if quotaDelta != 0 {
 		return PostConsumeQuota(relayInfo, quotaDelta, relayInfo.FinalPreConsumedQuota, true)
 	}
+	if relayInfo.BillingSource != BillingSourceSubscription && actualQuota > 0 {
+		ConsumeAffiliateRebateMaturity(relayInfo.UserId, actualQuota)
+	}
 	return nil
 }

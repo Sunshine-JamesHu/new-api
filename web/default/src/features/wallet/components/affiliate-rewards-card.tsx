@@ -24,11 +24,13 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CopyButton } from '@/components/copy-button'
-import type { UserWalletData } from '../types'
+import type { AffiliateRebateRecord, UserWalletData } from '../types'
 
 interface AffiliateRewardsCardProps {
   user: UserWalletData | null
   affiliateLink: string
+  pendingRebateQuota?: number
+  rebates?: AffiliateRebateRecord[]
   onTransfer: () => void
   complianceConfirmed?: boolean
   loading?: boolean
@@ -37,6 +39,8 @@ interface AffiliateRewardsCardProps {
 export function AffiliateRewardsCard({
   user,
   affiliateLink,
+  pendingRebateQuota = 0,
+  rebates = [],
   onTransfer,
   complianceConfirmed = true,
   loading,
@@ -61,7 +65,8 @@ export function AffiliateRewardsCard({
 
   return (
     <Card data-card-hover='false' className='bg-muted/20 py-0'>
-      <CardContent className='grid gap-3 p-3 sm:gap-4 sm:p-4 lg:grid-cols-[minmax(200px,1fr)_minmax(180px,0.65fr)_minmax(280px,1fr)] lg:items-center'>
+      <CardContent className='flex flex-col gap-3 p-3 sm:gap-4 sm:p-4'>
+        <div className='grid gap-3 lg:grid-cols-[minmax(200px,1fr)_minmax(220px,0.72fr)_minmax(280px,1fr)] lg:items-center'>
         <div className='flex min-w-0 items-center gap-2.5'>
           <div className='bg-background flex size-8 shrink-0 items-center justify-center rounded-lg border'>
             <Share2 className='text-muted-foreground size-4' />
@@ -78,9 +83,10 @@ export function AffiliateRewardsCard({
           </div>
         </div>
 
-        <div className='grid grid-cols-3 gap-1.5 text-center'>
+        <div className='grid grid-cols-4 gap-1.5 text-center'>
           {[
-            [t('Pending'), formatQuota(user?.aff_quota ?? 0)],
+            [t('Confirmed'), formatQuota(user?.aff_quota ?? 0)],
+            [t('Pending confirmation'), formatQuota(pendingRebateQuota)],
             [t('Total Earned'), formatQuota(user?.aff_history_quota ?? 0)],
             [t('Invites'), String(user?.aff_count ?? 0)],
           ].map(([label, value]) => (
@@ -127,6 +133,43 @@ export function AffiliateRewardsCard({
             )}
           </p>
         ) : null}
+        </div>
+
+        <div className='border-border/70 overflow-hidden rounded-md border'>
+          <div className='bg-background/60 grid grid-cols-[1.1fr_1fr_1fr_0.8fr] gap-2 px-3 py-2 text-xs font-medium'>
+            <span>{t('Rebate')}</span>
+            <span>{t('Remaining usage')}</span>
+            <span>{t('Order')}</span>
+            <span>{t('Status')}</span>
+          </div>
+          {rebates.length > 0 ? (
+            rebates.slice(0, 5).map((rebate) => (
+              <div
+                key={rebate.id}
+                className='grid grid-cols-[1.1fr_1fr_1fr_0.8fr] gap-2 border-t px-3 py-2 text-xs'
+              >
+                <span className='font-medium tabular-nums'>
+                  {formatQuota(rebate.rebate_quota)}
+                </span>
+                <span className='text-muted-foreground tabular-nums'>
+                  {formatQuota(rebate.remaining_quota)}
+                </span>
+                <span className='text-muted-foreground truncate font-mono'>
+                  {rebate.trade_no || `#${rebate.topup_id}`}
+                </span>
+                <span className='capitalize'>
+                  {rebate.status === 'pending'
+                    ? t('Pending')
+                    : t('Settled')}
+                </span>
+              </div>
+            ))
+          ) : (
+            <div className='text-muted-foreground border-t px-3 py-3 text-xs'>
+              {t('No affiliate rebate records yet')}
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   )

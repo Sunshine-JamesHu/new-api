@@ -36,6 +36,8 @@ export default function SettingsCreditLimit(props) {
     PreConsumedQuota: '',
     QuotaForInviter: '',
     QuotaForInvitee: '',
+    'payment_setting.affiliate_rebate_enabled': false,
+    'payment_setting.affiliate_rebate_rate': 0,
     'quota_setting.enable_free_model_pre_consume': true,
   });
   const refForm = useRef();
@@ -47,6 +49,11 @@ export default function SettingsCreditLimit(props) {
   function onSubmit() {
     const updateArray = compareObjects(inputs, inputsRow);
     if (!updateArray.length) return showWarning(t('你似乎并没有修改什么'));
+    const rate = Number(inputs['payment_setting.affiliate_rebate_rate'] || 0);
+    if (rate < 0 || rate > 100) {
+      showError(t('Rebate percentage must be between 0 and 100'));
+      return;
+    }
     const requestQueue = updateArray.map((item) => {
       let value = '';
       if (typeof inputs[item.key] === 'boolean') {
@@ -179,6 +186,43 @@ export default function SettingsCreditLimit(props) {
                     setInputs({
                       ...inputs,
                       QuotaForInvitee: String(value),
+                    })
+                  }
+                />
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Switch
+                  label={t('Enable affiliate rebate')}
+                  field={'payment_setting.affiliate_rebate_enabled'}
+                  extraText={t(
+                    'When enabled, completed top-ups from invited users create pending rebates for their inviters.',
+                  )}
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      'payment_setting.affiliate_rebate_enabled': value,
+                    })
+                  }
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.InputNumber
+                  label={t('Rebate percentage')}
+                  field={'payment_setting.affiliate_rebate_rate'}
+                  step={0.01}
+                  min={0}
+                  max={100}
+                  suffix={'%'}
+                  extraText={t(
+                    'Percentage of each invited user top-up returned to the inviter after that top-up quota is consumed.',
+                  )}
+                  placeholder={t('例如：12.5')}
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      'payment_setting.affiliate_rebate_rate': value,
                     })
                   }
                 />
