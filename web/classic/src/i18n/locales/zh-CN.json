@@ -3815,6 +3815,12 @@
     "按秒计费": "按秒计费",
     "输入每秒生成价格": "输入每秒生成价格",
     "适合视频模型按生成秒数计费。": "适合视频模型按生成秒数计费。",
+    "Enable affiliate rebate": "启用邀请返利",
+    "Rebate percentage": "返利比例",
+    "Rebate percentage must be between 0 and 100": "返利比例必须在 0 到 100 之间",
+    "Save affiliate rebate settings": "保存邀请返利设置",
+    "When enabled, completed top-ups from invited users create pending rebates for their inviters.": "开启后，被邀请用户完成充值时，会为邀请人生成待结算返利。",
+    "Percentage of each invited user top-up returned to the inviter after that top-up quota is consumed.": "被邀请用户消耗对应充值额度后，按该比例返还给邀请人。",
     "HappyHorse": "快乐马",
     "NewApiVideo": "NewApi视频",
     "通义千问": "通义千问"
