@@ -224,6 +224,8 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 								if err := model.IncreaseUserQuota(task.UserId, refundQuota, false); err != nil {
 									logger.LogError(ctx, fmt.Sprintf("退还预扣费失败: %s", err.Error()))
 								} else {
+									model.UpdateUserUsedQuota(task.UserId, quotaDelta)
+									model.UpdateChannelUsedQuota(task.ChannelId, quotaDelta)
 									task.Quota = actualQuota // 更新任务记录的实际扣费额度
 									affiliateMaturityQuota = actualQuota
 

@@ -172,6 +172,27 @@ func getUserQuota(t *testing.T, id int) int {
 	return user.Quota
 }
 
+func getUserUsedQuota(t *testing.T, id int) int {
+	t.Helper()
+	var user model.User
+	require.NoError(t, model.DB.Select("used_quota").Where("id = ?", id).First(&user).Error)
+	return user.UsedQuota
+}
+
+func getUserRequestCount(t *testing.T, id int) int {
+	t.Helper()
+	var user model.User
+	require.NoError(t, model.DB.Select("request_count").Where("id = ?", id).First(&user).Error)
+	return user.RequestCount
+}
+
+func getChannelUsedQuota(t *testing.T, id int) int64 {
+	t.Helper()
+	var channel model.Channel
+	require.NoError(t, model.DB.Select("used_quota").Where("id = ?", id).First(&channel).Error)
+	return channel.UsedQuota
+}
+
 func getTokenRemainQuota(t *testing.T, id int) int {
 	t.Helper()
 	var token model.Token
@@ -409,20 +430,30 @@ func TestRecalculate_NegativeDelta(t *testing.T) {
 	ctx := context.Background()
 
 	const userID, tokenID, channelID = 11, 11, 11
-	const initQuota, preConsumed = 10000, 5000
-	const actualQuota = 3000 // over-charged by 2000
+	const grantQuota, preConsumed = 10000, 2700
+	const actualQuota = 60 // over-charged by 2640
+	const requestCount = 1
 	const tokenRemain = 5000
 
-	seedUser(t, userID, initQuota)
+	seedUser(t, userID, grantQuota-preConsumed)
+	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+		"used_quota":    preConsumed,
+		"request_count": requestCount,
+	}).Error)
 	seedToken(t, tokenID, userID, "sk-recalc-neg", tokenRemain)
 	seedChannel(t, channelID)
+	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", channelID).Update("used_quota", preConsumed).Error)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
 
 	RecalculateTaskQuota(ctx, task, actualQuota, "adaptor adjustment")
 
 	// User quota should increase by abs(delta) = 2000 (refund overpayment)
-	assert.Equal(t, initQuota+(preConsumed-actualQuota), getUserQuota(t, userID))
+	assert.Equal(t, grantQuota-actualQuota, getUserQuota(t, userID))
+	assert.Equal(t, actualQuota, getUserUsedQuota(t, userID))
+	assert.Equal(t, requestCount, getUserRequestCount(t, userID))
+	assert.Equal(t, int64(actualQuota), getChannelUsedQuota(t, channelID))
+	assert.Equal(t, grantQuota, getUserQuota(t, userID)+getUserUsedQuota(t, userID))
 
 	// Token should be refunded the difference
 	assert.Equal(t, tokenRemain+(preConsumed-actualQuota), getTokenRemainQuota(t, tokenID))
