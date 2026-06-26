@@ -3341,6 +3341,7 @@
     "已启用 Passkey，无需密码即可登录": "Đã bật Passkey, đăng nhập không cần mật khẩu",
     "已启用所有密钥": "Tất cả các khóa đã được bật",
     "已切换到新版前端，正在刷新页面": "Đã chuyển sang frontend mới, đang làm mới trang",
+    "已切换到新版前端，正在跳转首页": "Đã chuyển sang frontend mới, đang chuyển đến trang chủ",
     "已切换为Assistant角色": "Đã chuyển sang vai trò Assistant",
     "已切换为System角色": "Đã chuyển sang vai trò System",
     "已切换至最优倍率视图，每个模型使用其最低倍率分组": "Đã chuyển sang chế độ xem tỷ lệ tối ưu, mỗi mô hình sử dụng nhóm tỷ lệ thấp nhất của nó",

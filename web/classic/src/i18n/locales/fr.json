@@ -2929,6 +2929,7 @@
     "已启用 Passkey，无需密码即可登录": "Passkey activé. Connexion sans mot de passe disponible.",
     "已启用所有密钥": "Toutes les clés ont été activées",
     "已切换到新版前端，正在刷新页面": "Passage au nouveau frontend effectué, actualisation de la page",
+    "已切换到新版前端，正在跳转首页": "Passage au nouveau frontend effectué, redirection vers l'accueil",
     "已切换为Assistant角色": "Basculé vers le rôle Assistant",
     "已切换为System角色": "Basculé vers le rôle Système",
     "已切换至最优倍率视图，每个模型使用其最低倍率分组": "Passé à la vue de ratio optimal, chaque modèle utilise son groupe de ratio le plus bas",
