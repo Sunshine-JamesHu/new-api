@@ -225,6 +225,16 @@ func GetAllUsers(pageInfo *common.PageInfo) (users []*User, total int64, err err
 	return users, total, nil
 }
 
+type UserStats struct {
+	RemainingQuota int64 `json:"remaining_quota"`
+}
+
+func GetUserStats() (*UserStats, error) {
+	stats := &UserStats{}
+	err := DB.Model(&User{}).Select("COALESCE(SUM(quota), 0) AS remaining_quota").Scan(stats).Error
+	return stats, err
+}
+
 func SearchUsers(keyword string, group string, role *int, status *int, startIdx int, num int) ([]*User, int64, error) {
 	var users []*User
 	var total int64

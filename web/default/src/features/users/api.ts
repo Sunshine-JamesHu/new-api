@@ -23,6 +23,7 @@ import type {
   GetUsersResponse,
   SearchUsersParams,
   UserFormData,
+  GetUserStatsResponse,
   ManageUserAction,
   ManageUserQuotaPayload,
   ApiResponse,
@@ -65,6 +66,14 @@ export async function searchUsers(
   queryParams.set('p', String(p))
   queryParams.set('page_size', String(page_size))
   const res = await api.get(`/api/user/search?${queryParams.toString()}`)
+  return res.data
+}
+
+/**
+ * Get aggregate user balance statistics.
+ */
+export async function getUserStats(): Promise<GetUserStatsResponse> {
+  const res = await api.get('/api/user/stats')
   return res.data
 }
 

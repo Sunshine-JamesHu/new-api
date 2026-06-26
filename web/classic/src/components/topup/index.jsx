@@ -109,6 +109,7 @@ const TopUp = () => {
   const [affiliateRebates, setAffiliateRebates] = useState([]);
   const [openTransfer, setOpenTransfer] = useState(false);
   const [transferAmount, setTransferAmount] = useState(0);
+  const transferAmountRef = useRef(0);
 
   // 账单Modal状态
   const [openHistory, setOpenHistory] = useState(false);
@@ -752,13 +753,16 @@ const TopUp = () => {
   };
 
   // 划转邀请额度
-  const transfer = async () => {
-    if (transferAmount < getQuotaPerUnit()) {
+  const transfer = async (quota) => {
+    const quotaToTransfer = Number(
+      quota || transferAmountRef.current || transferAmount,
+    );
+    if (quotaToTransfer < getQuotaPerUnit()) {
       showError(t('划转金额最低为') + ' ' + renderQuota(getQuotaPerUnit()));
       return;
     }
     const res = await API.post(`/api/user/aff_transfer`, {
-      quota: transferAmount,
+      quota: quotaToTransfer,
     });
     const { success, message } = res.data;
     if (success) {
@@ -790,6 +794,7 @@ const TopUp = () => {
     // 始终获取最新用户数据，确保余额等统计信息准确
     getUserQuota().then();
     getAffiliateRebates().then();
+    transferAmountRef.current = getQuotaPerUnit();
     setTransferAmount(getQuotaPerUnit());
   }, []);
 
@@ -931,7 +936,10 @@ const TopUp = () => {
         renderQuota={renderQuota}
         getQuotaPerUnit={getQuotaPerUnit}
         transferAmount={transferAmount}
-        setTransferAmount={setTransferAmount}
+        setTransferAmount={(value) => {
+          transferAmountRef.current = Number(value || 0);
+          setTransferAmount(value);
+        }}
       />
 
       {/* 充值确认模态框 */}

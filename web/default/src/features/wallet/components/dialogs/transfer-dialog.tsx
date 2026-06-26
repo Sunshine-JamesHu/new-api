@@ -19,10 +19,16 @@ For commercial licensing, please contact support@quantumnous.com
 import { useState, useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { formatQuota } from '@/lib/format'
+import {
+  formatNumber,
+  formatQuota,
+  parseQuotaFromDollars,
+  quotaUnitsToDollars,
+} from '@/lib/format'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog } from '@/components/dialog'
 import { QUOTA_PER_DOLLAR } from '../../constants'
 
@@ -42,17 +48,30 @@ export function TransferDialog({
   transferring,
 }: TransferDialogProps) {
   const { t } = useTranslation()
-  const [amount, setAmount] = useState(QUOTA_PER_DOLLAR)
+  const [transferMode, setTransferMode] = useState<'amount' | 'tokens'>(
+    'amount'
+  )
+  const [amount, setAmount] = useState(quotaUnitsToDollars(QUOTA_PER_DOLLAR))
+  const [quota, setQuota] = useState(QUOTA_PER_DOLLAR)
+  const quotaToTransfer =
+    transferMode === 'amount' ? parseQuotaFromDollars(amount) : quota
+  const maxAmount = quotaUnitsToDollars(availableQuota)
 
   useEffect(() => {
-    if (open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setAmount(QUOTA_PER_DOLLAR)
+    if (!open) {
+      return
     }
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTransferMode('amount')
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAmount(quotaUnitsToDollars(QUOTA_PER_DOLLAR))
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setQuota(QUOTA_PER_DOLLAR)
   }, [open])
 
   const handleConfirm = async () => {
-    const success = await onConfirm(amount)
+    const success = await onConfirm(quotaToTransfer)
     if (success) {
       onOpenChange(false)
     }
@@ -78,7 +97,14 @@ export function TransferDialog({
           >
             {t('Cancel')}
           </Button>
-          <Button onClick={handleConfirm} disabled={transferring}>
+          <Button
+            onClick={handleConfirm}
+            disabled={
+              transferring ||
+              quotaToTransfer < QUOTA_PER_DOLLAR ||
+              quotaToTransfer > availableQuota
+            }
+          >
             {transferring && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
             {t('Transfer')}
           </Button>
@@ -95,25 +121,58 @@ export function TransferDialog({
           </div>
         </div>
 
+        <Tabs
+          value={transferMode}
+          onValueChange={(value) =>
+            setTransferMode(value === 'tokens' ? 'tokens' : 'amount')
+          }
+        >
+          <TabsList className='grid w-full grid-cols-2'>
+            <TabsTrigger value='amount'>{t('By amount')}</TabsTrigger>
+            <TabsTrigger value='tokens'>{t('By tokens')}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
         <div className='space-y-3'>
           <Label
             htmlFor='transfer-amount'
             className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
           >
-            {t('Transfer Amount')}
+            {transferMode === 'amount'
+              ? t('Transfer Amount')
+              : t('Transfer Tokens')}
           </Label>
           <Input
             id='transfer-amount'
             type='number'
-            value={amount}
-            onChange={(e) => setAmount(Number(e.target.value))}
-            min={QUOTA_PER_DOLLAR}
-            max={availableQuota}
-            step={QUOTA_PER_DOLLAR}
+            value={transferMode === 'amount' ? amount : quota}
+            onChange={(e) => {
+              const value = Number(e.target.value)
+              if (transferMode === 'amount') {
+                setAmount(value)
+                return
+              }
+              setQuota(value)
+            }}
+            min={
+              transferMode === 'amount'
+                ? quotaUnitsToDollars(QUOTA_PER_DOLLAR)
+                : QUOTA_PER_DOLLAR
+            }
+            max={transferMode === 'amount' ? maxAmount : availableQuota}
+            step={
+              transferMode === 'amount'
+                ? quotaUnitsToDollars(QUOTA_PER_DOLLAR)
+                : QUOTA_PER_DOLLAR
+            }
             className='font-mono text-lg'
           />
           <p className='text-muted-foreground text-xs'>
             {t('Minimum:')} {formatQuota(QUOTA_PER_DOLLAR)}
+          </p>
+          <p className='text-muted-foreground text-xs'>
+            {t('Will transfer')}: {formatQuota(quotaToTransfer)} (
+            {formatNumber(quotaToTransfer)} {t('tokens')})
           </p>
         </div>
       </div>

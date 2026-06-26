@@ -35,6 +35,7 @@ export const useUsersData = () => {
   const [searching, setSearching] = useState(false);
   const [groupOptions, setGroupOptions] = useState([]);
   const [userCount, setUserCount] = useState(0);
+  const [statsRefreshKey, setStatsRefreshKey] = useState(0);
 
   // Modal states
   const [showAddUser, setShowAddUser] = useState(false);
@@ -147,6 +148,7 @@ export const useUsersData = () => {
       });
 
       setUsers(newUsers);
+      setStatsRefreshKey((value) => value + 1);
     } else {
       showError(message);
     }
@@ -232,6 +234,7 @@ export const useUsersData = () => {
     } else {
       await searchUsers(page, pageSize, searchKeyword, searchGroup);
     }
+    setStatsRefreshKey((value) => value + 1);
   };
 
   // Fetch groups data
@@ -281,6 +284,7 @@ export const useUsersData = () => {
     activePage,
     pageSize,
     userCount,
+    statsRefreshKey,
     searching,
     groupOptions,
 

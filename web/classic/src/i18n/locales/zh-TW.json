@@ -3687,6 +3687,17 @@
     "Percentage of each invited user top-up returned to the inviter after that top-up quota is consumed.": "被邀請使用者消耗對應充值額度後，按此比例返還給邀請人。",
     "HappyHorse": "快樂馬",
     "NewApiVideo": "NewApi視頻",
-    "通义千问": "通義千問"
+    "通义千问": "通義千問",
+    "Available Rewards": "可用返利",
+    "By amount": "按金額",
+    "By tokens": "按 Token 數",
+    "Failed to load user statistics": "載入使用者統計失敗",
+    "Minimum:": "最低：",
+    "tokens": "Token",
+    "Transfer Amount": "劃轉金額",
+    "Transfer Rewards": "劃轉返利",
+    "Transfer Tokens": "劃轉 Token 數",
+    "Unconsumed Balance": "未消耗餘額",
+    "Will transfer": "將劃轉"
   }
 }

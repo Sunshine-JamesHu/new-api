@@ -178,6 +178,11 @@ export const STATIC_I18N_KEYS = [
   'Remaining Quota ({{currency}})',
   'Enter quota in tokens',
   'Enter quota in {{currency}}',
+  'By amount',
+  'Transfer Tokens',
+  'Will transfer',
+  'Unconsumed Balance',
+  'Failed to load user statistics',
 
   // Setup wizard — steps
   'Database check',

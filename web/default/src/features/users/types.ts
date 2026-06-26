@@ -89,6 +89,12 @@ export interface GetUsersResponse {
   }
 }
 
+export interface UserStats {
+  remaining_quota: number
+}
+
+export type GetUserStatsResponse = ApiResponse<UserStats>
+
 export interface SearchUsersParams {
   keyword?: string
   group?: string
