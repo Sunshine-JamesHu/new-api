@@ -49,4 +49,20 @@ func SetVideoRouter(router *gin.Engine) {
 		// Maps to: /?Action=CVSync2AsyncSubmitTask&Version=2022-08-31 and /?Action=CVSync2AsyncGetResult&Version=2022-08-31
 		jimengOfficialGroup.POST("/", controller.RelayTask)
 	}
+
+	happyHorseOfficialGroup := router.Group("/api/v1")
+	happyHorseOfficialGroup.Use(middleware.RouteTag("relay"))
+	happyHorseOfficialGroup.Use(middleware.HappyHorseOfficialRequestConvert(), middleware.TokenAuth(), middleware.Distribute())
+	{
+		happyHorseOfficialGroup.POST("/services/aigc/video-generation/video-synthesis", controller.RelayTask)
+		happyHorseOfficialGroup.GET("/tasks/:task_id", controller.RelayTaskFetch)
+	}
+
+	doubaoOfficialGroup := router.Group("/api/v3")
+	doubaoOfficialGroup.Use(middleware.RouteTag("relay"))
+	doubaoOfficialGroup.Use(middleware.DoubaoOfficialRequestConvert(), middleware.TokenAuth(), middleware.Distribute())
+	{
+		doubaoOfficialGroup.POST("/contents/generations/tasks", controller.RelayTask)
+		doubaoOfficialGroup.GET("/contents/generations/tasks/:task_id", controller.RelayTaskFetch)
+	}
 }

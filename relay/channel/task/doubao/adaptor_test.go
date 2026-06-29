@@ -343,3 +343,24 @@ func TestBuildRequestBodyPreservesMetadataGenerateAudioFalse(t *testing.T) {
 	require.NotNil(t, payload.GenerateAudio)
 	require.Equal(t, dto.BoolValue(false), *payload.GenerateAudio)
 }
+
+func TestDoResponseUsesOfficialShapeForOfficialDoubaoRoute(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v3/contents/generations/tasks", nil)
+	c.Set(common.KeyTaskOfficialProvider, common.TaskOfficialProviderDoubao)
+	info := doubaoRelayInfo("doubao-seedance-2-0-260128")
+	info.PublicTaskID = "task_public"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewBufferString(`{"id":"upstream_task"}`)),
+	}
+
+	taskID, taskData, taskErr := (&TaskAdaptor{}).DoResponse(c, resp, info)
+
+	require.Nil(t, taskErr)
+	require.Equal(t, "upstream_task", taskID)
+	require.JSONEq(t, `{"id":"task_public"}`, string(taskData))
+	require.JSONEq(t, `{"id":"task_public"}`, recorder.Body.String())
+}

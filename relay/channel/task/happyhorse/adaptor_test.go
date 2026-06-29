@@ -229,6 +229,30 @@ func TestHeaderEnablesOssResolve(t *testing.T) {
 	require.Equal(t, "enable", req.Header.Get("X-DashScope-OssResourceResolve"))
 }
 
+func TestDoResponseUsesOfficialShapeForOfficialHappyHorseRoute(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/services/aigc/video-generation/video-synthesis", nil)
+	c.Set(common.KeyTaskOfficialProvider, common.TaskOfficialProviderHappyHorse)
+	info := happyHorseRelayInfo("happyhorse-1.0-t2v", "", false)
+	info.PublicTaskID = "task_public"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(bytes.NewBufferString(`{
+			"output":{"task_id":"upstream_task","task_status":"PENDING"},
+			"request_id":"req_1"
+		}`)),
+	}
+
+	taskID, taskData, taskErr := (&TaskAdaptor{}).DoResponse(c, resp, info)
+
+	require.Nil(t, taskErr)
+	require.Equal(t, "upstream_task", taskID)
+	require.Contains(t, string(taskData), `"task_id":"task_public"`)
+	require.Contains(t, recorder.Body.String(), `"task_id":"task_public"`)
+}
+
 func TestChannelMetadata(t *testing.T) {
 	adaptor := &TaskAdaptor{}
 	require.Equal(t, ChannelName, adaptor.GetChannelName())

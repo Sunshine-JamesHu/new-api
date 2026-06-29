@@ -232,6 +232,17 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		taskErr = service.TaskErrorWrapper(fmt.Errorf("task_id is empty"), "invalid_response", http.StatusInternalServerError)
 		return
 	}
+	if c.GetString(common.KeyTaskOfficialProvider) == common.TaskOfficialProviderDoubao {
+		upstreamTaskID := dResp.ID
+		dResp.ID = info.PublicTaskID
+		taskData, err = common.Marshal(dResp)
+		if err != nil {
+			taskErr = service.TaskErrorWrapper(err, "marshal_response_body_failed", http.StatusInternalServerError)
+			return
+		}
+		c.JSON(http.StatusOK, dResp)
+		return upstreamTaskID, taskData, nil
+	}
 	ov := dto.NewOpenAIVideo()
 	ov.ID = info.PublicTaskID
 	ov.TaskID = info.PublicTaskID

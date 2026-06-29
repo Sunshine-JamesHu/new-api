@@ -19,6 +19,12 @@ import (
 
 const KeyRequestBody = "key_request_body"
 const KeyBodyStorage = "key_body_storage"
+const KeyTaskOfficialProvider = "key_task_official_provider"
+
+const (
+	TaskOfficialProviderDoubao     = "doubao"
+	TaskOfficialProviderHappyHorse = "happyhorse"
+)
 
 var ErrRequestBodyTooLarge = errors.New("request body too large")
 

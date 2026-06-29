@@ -150,6 +150,16 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	if upstreamResp.Output.TaskID == "" {
 		return "", nil, service.TaskErrorWrapper(fmt.Errorf("task_id is empty"), "invalid_response", http.StatusInternalServerError)
 	}
+	if c.GetString(common.KeyTaskOfficialProvider) == common.TaskOfficialProviderHappyHorse {
+		upstreamTaskID := upstreamResp.Output.TaskID
+		upstreamResp.Output.TaskID = info.PublicTaskID
+		taskData, err := common.Marshal(upstreamResp)
+		if err != nil {
+			return "", nil, service.TaskErrorWrapper(err, "marshal_response_body_failed", http.StatusInternalServerError)
+		}
+		c.JSON(http.StatusOK, upstreamResp)
+		return upstreamTaskID, taskData, nil
+	}
 	openAIResp := dto.NewOpenAIVideo()
 	openAIResp.ID = info.PublicTaskID
 	openAIResp.TaskID = info.PublicTaskID

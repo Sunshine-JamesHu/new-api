@@ -389,6 +389,14 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 		return
 	}
 
+	if provider := c.GetString(common.KeyTaskOfficialProvider); provider != "" {
+		respBody, err = officialVideoFetchResponse(provider, originTask)
+		if err != nil {
+			taskResp = service.TaskErrorWrapper(err, "convert_to_official_video_failed", http.StatusInternalServerError)
+		}
+		return
+	}
+
 	isOpenAIVideoAPI := strings.HasPrefix(c.Request.RequestURI, "/v1/videos/")
 
 	// Gemini/Vertex 支持实时查询：用户 fetch 时直接从上游拉取最新状态
@@ -431,6 +439,100 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 // tryRealtimeFetch 尝试从上游实时拉取 Gemini/Vertex 任务状态。
 // 仅当渠道类型为 Gemini 或 Vertex 时触发；其他渠道或出错时返回 nil。
 // 当非 OpenAI Video API 时，还会构建自定义格式的响应体。
+func officialVideoFetchResponse(provider string, task *model.Task) ([]byte, error) {
+	switch provider {
+	case common.TaskOfficialProviderHappyHorse:
+		return happyHorseOfficialFetchResponse(task)
+	case common.TaskOfficialProviderDoubao:
+		return doubaoOfficialFetchResponse(task)
+	default:
+		return nil, fmt.Errorf("unsupported official video provider: %s", provider)
+	}
+}
+
+func happyHorseOfficialFetchResponse(task *model.Task) ([]byte, error) {
+	var body map[string]any
+	if len(task.Data) > 0 {
+		_ = common.Unmarshal(task.Data, &body)
+	}
+	if body == nil {
+		body = map[string]any{}
+	}
+	output, ok := body["output"].(map[string]any)
+	if !ok || output == nil {
+		output = map[string]any{}
+		body["output"] = output
+	}
+	output["task_id"] = task.TaskID
+	output["task_status"] = happyHorseOfficialStatus(task.Status)
+	if task.GetResultURL() != "" {
+		output["video_url"] = task.GetResultURL()
+	}
+	if task.Status == model.TaskStatusFailure && task.FailReason != "" {
+		output["message"] = task.FailReason
+	}
+	return common.Marshal(body)
+}
+
+func doubaoOfficialFetchResponse(task *model.Task) ([]byte, error) {
+	var body map[string]any
+	if len(task.Data) > 0 {
+		_ = common.Unmarshal(task.Data, &body)
+	}
+	if body == nil {
+		body = map[string]any{}
+	}
+	body["id"] = task.TaskID
+	body["status"] = doubaoOfficialStatus(task.Status)
+	if task.GetResultURL() != "" {
+		content, ok := body["content"].(map[string]any)
+		if !ok || content == nil {
+			content = map[string]any{}
+			body["content"] = content
+		}
+		content["video_url"] = task.GetResultURL()
+	}
+	if task.Status == model.TaskStatusFailure && task.FailReason != "" {
+		errBody, ok := body["error"].(map[string]any)
+		if !ok || errBody == nil {
+			errBody = map[string]any{}
+			body["error"] = errBody
+		}
+		errBody["message"] = task.FailReason
+	}
+	return common.Marshal(body)
+}
+
+func happyHorseOfficialStatus(status model.TaskStatus) string {
+	switch status {
+	case model.TaskStatusSuccess:
+		return "SUCCEEDED"
+	case model.TaskStatusFailure:
+		return "FAILED"
+	case model.TaskStatusInProgress:
+		return "RUNNING"
+	case model.TaskStatusQueued, model.TaskStatusSubmitted, model.TaskStatusNotStart:
+		return "PENDING"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+func doubaoOfficialStatus(status model.TaskStatus) string {
+	switch status {
+	case model.TaskStatusSuccess:
+		return "succeeded"
+	case model.TaskStatusFailure:
+		return "failed"
+	case model.TaskStatusInProgress:
+		return "running"
+	case model.TaskStatusQueued, model.TaskStatusSubmitted, model.TaskStatusNotStart:
+		return "queued"
+	default:
+		return "unknown"
+	}
+}
+
 func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 	channelModel, err := model.GetChannelById(task.ChannelId, true)
 	if err != nil {
