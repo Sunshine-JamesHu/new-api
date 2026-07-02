@@ -350,8 +350,8 @@ const TopUp = () => {
       }
 
       if (res !== undefined) {
-        const { message, data } = res.data;
-        if (message === 'success') {
+        const { message, success, data } = res.data;
+        if (success === true || message === 'success') {
           if (payWay === 'stripe') {
             // Stripe 支付回调处理
             window.open(data.pay_link, '_blank');
@@ -421,8 +421,8 @@ const TopUp = () => {
         payment_method: 'creem',
       });
       if (res !== undefined) {
-        const { message, data } = res.data;
-        if (message === 'success') {
+        const { message, success, data } = res.data;
+        if (success === true || message === 'success') {
           processCreemCallback(data);
         } else {
           const errorMsg =
@@ -478,7 +478,10 @@ const TopUp = () => {
     }
 
     setPaymentLoading(true);
+    let payWindow = null;
+    let keepPayWindowOpen = false;
     try {
+      payWindow = window.open('', '_blank');
       const res = await API.post('/api/user/alipay/pay', {
         amount: parseInt(topUpCount),
         is_mobile: isMobileUserAgent(),
@@ -487,9 +490,15 @@ const TopUp = () => {
         const { message, data } = res.data;
         if (message === 'success') {
           if (data?.pay_url) {
-            window.open(data.pay_url, '_blank');
+            if (payWindow) {
+              payWindow.location.href = data.pay_url;
+              keepPayWindowOpen = true;
+            } else {
+              window.location.href = data.pay_url;
+            }
             showSuccess(t('已打开支付页面'));
           } else if (data?.qr_code) {
+            payWindow?.close();
             setAlipayQrCode(data.qr_code);
             showSuccess(t('支付宝二维码已打开'));
           } else {
@@ -506,6 +515,9 @@ const TopUp = () => {
     } catch (e) {
       showError(t('支付请求失败'));
     } finally {
+      if (!keepPayWindowOpen) {
+        payWindow?.close();
+      }
       setPaymentLoading(false);
     }
   };

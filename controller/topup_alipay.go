@@ -171,10 +171,14 @@ func RequestAlipayPay(c *gin.Context) {
 	}
 
 	logger.LogInfo(c.Request.Context(), fmt.Sprintf("official alipay topup created user_id=%d trade_no=%s amount=%d money=%.2f result=%q", id, tradeNo, req.Amount, payMoney, common.GetJsonString(result)))
-	common.ApiSuccess(c, gin.H{
-		"trade_no": tradeNo,
-		"pay_url":  result.PayURL,
-		"qr_code":  result.QRCode,
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "success",
+		"data": gin.H{
+			"trade_no": tradeNo,
+			"pay_url":  result.PayURL,
+			"qr_code":  result.QRCode,
+		},
 	})
 }
 
@@ -210,7 +214,7 @@ func createAlipayPayment(ctx context.Context, client *alipay.Client, isMobile bo
 		if err != nil {
 			common.SysLog(fmt.Sprintf("alipay precreate failed, fallback to page pay: %s", err.Error()))
 		} else if rsp != nil && rsp.IsFailure() {
-			common.SysLog(fmt.Sprintf("alipay precreate failed, fallback to page pay: %s", rsp.Error.Error()))
+			common.SysLog(fmt.Sprintf("alipay precreate failed, fallback to page pay: code=%s msg=%q sub_code=%q sub_msg=%q trade_no=%s amount=%s notify_url=%s", rsp.Code, rsp.Msg, rsp.SubCode, rsp.SubMsg, tradeNo, money, notifyURL))
 		}
 	}
 
@@ -269,6 +273,25 @@ func AlipayNotify(c *gin.Context) {
 	if notification.TradeStatus != alipayTradeStatusSuccess && notification.TradeStatus != alipayTradeStatusFinished {
 		logger.LogInfo(c.Request.Context(), fmt.Sprintf("official alipay webhook ignored trade_no=%s out_trade_no=%s trade_status=%s client_ip=%s", notification.TradeNo, notification.OutTradeNo, notification.TradeStatus, c.ClientIP()))
 		notifyResponse = "success"
+		return
+	}
+	if strings.TrimSpace(notification.AppId) != strings.TrimSpace(setting.AlipayAppId) {
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("official alipay webhook app_id mismatch trade_no=%s alipay_trade_no=%s app_id=%s client_ip=%s", notification.OutTradeNo, notification.TradeNo, notification.AppId, c.ClientIP()))
+		return
+	}
+	topUp := model.GetTopUpByTradeNo(notification.OutTradeNo)
+	if topUp == nil {
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("official alipay webhook topup not found trade_no=%s alipay_trade_no=%s client_ip=%s", notification.OutTradeNo, notification.TradeNo, c.ClientIP()))
+		return
+	}
+	notificationAmount, err := decimal.NewFromString(notification.TotalAmount)
+	if err != nil {
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("official alipay webhook amount parse failed trade_no=%s alipay_trade_no=%s total_amount=%s client_ip=%s error=%q", notification.OutTradeNo, notification.TradeNo, notification.TotalAmount, c.ClientIP(), err.Error()))
+		return
+	}
+	expectedAmount := decimal.NewFromFloat(topUp.Money).Round(2)
+	if !notificationAmount.Equal(expectedAmount) {
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("official alipay webhook amount mismatch trade_no=%s alipay_trade_no=%s total_amount=%s expected_amount=%s client_ip=%s", notification.OutTradeNo, notification.TradeNo, notification.TotalAmount, expectedAmount.StringFixed(2), c.ClientIP()))
 		return
 	}
 

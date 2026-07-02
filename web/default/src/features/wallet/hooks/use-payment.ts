@@ -97,6 +97,9 @@ export function usePayment() {
   // Process payment
   const processPayment = useCallback(
     async (topupAmount: number, paymentType: string, provider?: string) => {
+      let payWindow: Window | null = null
+      let keepPayWindowOpen = false
+
       try {
         setProcessing(true)
 
@@ -123,6 +126,8 @@ export function usePayment() {
         }
 
         if (isAlipay) {
+          payWindow = window.open('', '_blank')
+
           const response = await requestAlipayPayment({
             amount,
             payment_method: paymentType,
@@ -132,20 +137,30 @@ export function usePayment() {
           })
 
           if (!isApiSuccess(response)) {
+            payWindow?.close()
             toast.error(response.message || i18next.t('Payment request failed'))
             return false
           }
           if (response.data) {
             if (response.data.pay_url) {
-              window.open(response.data.pay_url, '_blank')
+              if (payWindow) {
+                payWindow.location.href = response.data.pay_url
+                keepPayWindowOpen = true
+              } else {
+                window.location.href = response.data.pay_url
+              }
               toast.success(i18next.t('Redirecting to payment page...'))
               return true
             }
             if (response.data.qr_code) {
+              payWindow?.close()
               setAlipayQrCode(response.data.qr_code)
               toast.success(i18next.t('Alipay QR code opened'))
               return true
             }
+          }
+          if (!keepPayWindowOpen) {
+            payWindow?.close()
           }
           return false
         }
@@ -172,6 +187,9 @@ export function usePayment() {
         toast.error(i18next.t('Payment request failed'))
         return false
       } finally {
+        if (!keepPayWindowOpen) {
+          payWindow?.close()
+        }
         setProcessing(false)
       }
     },
