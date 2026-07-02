@@ -1,6 +1,8 @@
 package ali
 
 var WanVideoModelList = []string{
+	"wan2.7-i2v",
+	"wan2.7-t2v",
 	"wan2.5-i2v-preview",
 	"wan2.2-i2v-flash",
 	"wan2.2-i2v-plus",

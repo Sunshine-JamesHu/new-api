@@ -39,3 +39,8 @@ tmp/
 .playwright-mcp
 .agents/skills/owl-ai/
 .agents/skills/owl-ai.zip
+
+# Local-only live probes and scratch test workspaces.
+.local-tests/
+service/relayconvert/chat_responses_live_local_test.go
+service/openaicompat/chat_responses_live_local_test.go
