@@ -24,6 +24,13 @@ import { CreditCard } from 'lucide-react';
 
 const { Text } = Typography;
 
+function getPaymentKey(method) {
+  if (method?.type === 'alipay' && method?.provider === 'alipay') {
+    return 'alipay:official';
+  }
+  return method?.payment_key || method?.type || '';
+}
+
 const PaymentConfirmModal = ({
   t,
   open,
@@ -117,7 +124,7 @@ const PaymentConfirmModal = ({
               <div className='flex items-center'>
                 {(() => {
                   const payMethod = payMethods.find(
-                    (method) => method.type === payWay,
+                    (method) => getPaymentKey(method) === payWay,
                   );
                   if (payMethod) {
                     return (
@@ -167,7 +174,7 @@ const PaymentConfirmModal = ({
                     );
                   } else {
                     // 默认充值方式
-                    if (payWay === 'alipay') {
+                    if (payWay === 'alipay' || payWay === 'alipay:official') {
                       return (
                         <>
                           <SiAlipay

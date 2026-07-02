@@ -18,11 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getSelf } from '@/lib/api'
+
+import { SectionPageLayout } from '@/components/layout'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
-import { SectionPageLayout } from '@/components/layout'
+import { getSelf } from '@/lib/api'
+
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
+import { AlipayQrDialog } from './components/dialogs/alipay-qr-dialog'
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
 import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
 import { PaymentConfirmDialog } from './components/dialogs/payment-confirm-dialog'
@@ -88,8 +91,10 @@ export function Wallet(props: WalletProps) {
     amount: paymentAmount,
     calculating,
     processing,
+    alipayQrCode,
     calculatePaymentAmount,
     processPayment,
+    setAlipayQrCode,
   } = usePayment()
   const {
     affiliateLink,
@@ -138,35 +143,54 @@ export function Wallet(props: WalletProps) {
       const minTopup = getMinTopupAmount(topupInfo)
       setTopupAmount(minTopup)
 
-      // Calculate initial payment amount with default payment type
-      const defaultPaymentType = getDefaultPaymentType(topupInfo)
-      calculatePaymentAmount(minTopup, defaultPaymentType)
+      // Calculate initial payment amount with default payment type.
+      const defaultPaymentMethod = topupInfo.pay_methods?.[0]
+      calculatePaymentAmount(
+        minTopup,
+        defaultPaymentMethod?.type || getDefaultPaymentType(topupInfo),
+        defaultPaymentMethod?.provider
+      )
     }
   }, [topupInfo, topupAmount, calculatePaymentAmount])
 
-  // Get current payment type (selected or default)
-  const getCurrentPaymentType = useCallback(() => {
-    return selectedPaymentMethod?.type || getDefaultPaymentType(topupInfo)
+  // Get current payment method (selected or default)
+  const getCurrentPaymentMethod = useCallback(() => {
+    const defaultPaymentMethod = topupInfo?.pay_methods?.[0]
+    return {
+      provider: selectedPaymentMethod?.provider || defaultPaymentMethod?.provider,
+      type:
+        selectedPaymentMethod?.type ||
+        defaultPaymentMethod?.type ||
+        getDefaultPaymentType(topupInfo),
+    }
   }, [selectedPaymentMethod, topupInfo])
 
   // Handle preset selection
   const handleSelectPreset = (preset: PresetAmount) => {
     setTopupAmount(preset.value)
     setSelectedPreset(preset.value)
-    calculatePaymentAmount(preset.value, getCurrentPaymentType())
+    const currentMethod = getCurrentPaymentMethod()
+    calculatePaymentAmount(
+      preset.value,
+      currentMethod.type,
+      currentMethod.provider
+    )
   }
 
   // Handle topup amount change
   const handleTopupAmountChange = (amount: number) => {
     setTopupAmount(amount)
     setSelectedPreset(null)
-    calculatePaymentAmount(amount, getCurrentPaymentType())
+    const currentMethod = getCurrentPaymentMethod()
+    calculatePaymentAmount(amount, currentMethod.type, currentMethod.provider)
   }
 
   // Handle payment method selection
   const handlePaymentMethodSelect = async (method: PaymentMethod) => {
     setSelectedPaymentMethod(method)
-    setPaymentLoading(method.type)
+    setPaymentLoading(
+      method.provider ? `${method.provider}-${method.type}` : method.type
+    )
 
     try {
       // Validate minimum topup
@@ -176,7 +200,7 @@ export function Wallet(props: WalletProps) {
       }
 
       // Calculate payment amount and show confirmation dialog
-      await calculatePaymentAmount(topupAmount, method.type)
+      await calculatePaymentAmount(topupAmount, method.type, method.provider)
       setConfirmDialogOpen(true)
     } finally {
       setPaymentLoading(null)
@@ -190,7 +214,11 @@ export function Wallet(props: WalletProps) {
     const isPancake = isWaffoPancakePayment(selectedPaymentMethod.type)
     const success = isPancake
       ? await processWaffoPancakePayment(topupAmount)
-      : await processPayment(topupAmount, selectedPaymentMethod.type)
+      : await processPayment(
+          topupAmount,
+          selectedPaymentMethod.type,
+          selectedPaymentMethod.provider
+        )
 
     if (success) {
       setConfirmDialogOpen(false)
@@ -355,6 +383,13 @@ export function Wallet(props: WalletProps) {
       <BillingHistoryDialog
         open={billingDialogOpen}
         onOpenChange={setBillingDialogOpen}
+      />
+
+      <AlipayQrDialog
+        qrCode={alipayQrCode}
+        onOpenChange={(open) => {
+          if (!open) setAlipayQrCode('')
+        }}
       />
 
       <CreemConfirmDialog

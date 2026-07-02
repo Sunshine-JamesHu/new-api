@@ -38,6 +38,23 @@ func isCreemTopUpEnabled() bool {
 		products != "[]"
 }
 
+func isAlipayTopUpEnabled() bool {
+	if !isPaymentComplianceConfirmed() {
+		return false
+	}
+	return isAlipayWebhookConfigured()
+}
+
+func isAlipayWebhookConfigured() bool {
+	return strings.TrimSpace(setting.AlipayAppId) != "" &&
+		strings.TrimSpace(setting.AlipayPrivateKey) != "" &&
+		strings.TrimSpace(setting.AlipayPublicKey) != ""
+}
+
+func isAlipayWebhookEnabled() bool {
+	return isAlipayTopUpEnabled()
+}
+
 func isCreemWebhookConfigured() bool {
 	return strings.TrimSpace(setting.CreemWebhookSecret) != ""
 }

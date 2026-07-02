@@ -76,6 +76,16 @@ export function isStripePayment(paymentType: string): boolean {
 }
 
 /**
+ * Check if a payment method points to the official Alipay provider.
+ */
+export function isOfficialAlipayPayment(
+  paymentType: string,
+  provider?: string
+): boolean {
+  return paymentType === PAYMENT_TYPES.ALIPAY && provider === 'alipay'
+}
+
+/**
  * Check if payment method is Waffo Pancake
  *
  * Pancake is a metered-style payment that goes through a dedicated checkout
@@ -103,6 +113,10 @@ export function getDefaultPaymentType(topupInfo: TopupInfo | null): string {
     return PAYMENT_TYPES.STRIPE
   }
 
+  if (topupInfo.enable_alipay_topup) {
+    return PAYMENT_TYPES.ALIPAY
+  }
+
   if (topupInfo.enable_waffo_topup) {
     return PAYMENT_TYPES.WAFFO
   }
@@ -128,6 +142,10 @@ export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
 
   if (topupInfo.enable_stripe_topup) {
     return topupInfo.stripe_min_topup
+  }
+
+  if (topupInfo.enable_alipay_topup) {
+    return topupInfo.min_topup || DEFAULT_MIN_TOPUP
   }
 
   if (topupInfo.enable_waffo_topup) {

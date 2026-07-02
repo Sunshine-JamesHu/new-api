@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect, useCallback } from 'react'
+
 import { getTopupInfo } from '../api'
 import {
   generatePresetAmounts,
@@ -69,6 +70,7 @@ function parsePaymentMethods(
       return {
         name: typeof item.name === 'string' ? item.name : '',
         type,
+        provider: typeof item.provider === 'string' ? item.provider : undefined,
         color: typeof item.color === 'string' ? item.color : undefined,
         icon: typeof item.icon === 'string' ? item.icon : undefined,
         min_topup:

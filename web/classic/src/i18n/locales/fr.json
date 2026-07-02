@@ -3711,6 +3711,26 @@
     "whsec_xxx 的 Webhook 签名密钥，敏感信息不显示": "Clé de signature Webhook whsec_xxx, les informations sensibles ne sont pas affichées",
     "Will transfer": "Sera transfere",
     "Worker地址": "Adresse du Worker",
-    "Worker密钥": "Clé du Worker"
+    "Worker密钥": "Clé du Worker",
+    "支付宝官方": "Alipay officiel",
+    "支付宝官方设置": "Paramètres Alipay officiel",
+    "这是支付宝官方接口，不是易支付接口。": "Il s'agit de la passerelle officielle Alipay, pas d'Epay.",
+    "支付宝异步通知地址": "URL de notification asynchrone Alipay",
+    "桌面端默认优先展示扫码支付，未开通当面付时可切换为跳转支付。": "Sur ordinateur, le paiement par QR code est affiché en premier. Passez au mode redirection si le paiement face à face n'est pas activé.",
+    "支付宝 App ID": "ID d'application Alipay",
+    "支付宝同步回跳地址": "URL de retour Alipay",
+    "留空则默认回到本站账单页面": "Laissez vide pour revenir par défaut à la page de facturation du site",
+    "支付宝应用私钥": "Clé privée de l'application Alipay",
+    "留空则不更新密钥": "Laissez vide pour conserver la clé actuelle",
+    "支付宝公钥": "Clé publique Alipay",
+    "桌面端支付模式": "Mode de paiement ordinateur",
+    "优先扫码，失败后跳转": "QR d'abord, redirection en secours",
+    "始终跳转支付宝收银台": "Toujours rediriger vers la caisse Alipay",
+    "未开通当面付时请选择跳转模式": "Choisissez le mode redirection si le paiement face à face n'est pas activé",
+    "更新支付宝官方设置": "Mettre à jour les paramètres Alipay officiel",
+    "管理员未开启支付宝官方充值！": "L'administrateur n'a pas activé la recharge Alipay officielle.",
+    "支付宝二维码已打开": "QR code Alipay ouvert",
+    "支付宝扫码支付": "Paiement Alipay par QR code",
+    "请使用支付宝扫描二维码完成支付。": "Scannez le QR code avec Alipay pour terminer le paiement."
   }
 }

@@ -103,6 +103,38 @@ func TestRechargeWaffoPancake_RejectsMismatchedPaymentMethod(t *testing.T) {
 	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, 101))
 }
 
+func TestRechargeAlipay_RejectsMismatchedPaymentProvider(t *testing.T) {
+	truncateTables(t)
+
+	insertUserForPaymentGuardTest(t, 102, 0)
+	insertTopUpForPaymentGuardTest(t, "alipay-provider-guard", 102, PaymentProviderEpay)
+
+	err := RechargeAlipay("alipay-provider-guard", "127.0.0.1")
+	require.Error(t, err)
+
+	topUp := GetTopUpByTradeNo("alipay-provider-guard")
+	require.NotNil(t, topUp)
+	assert.Equal(t, common.TopUpStatusPending, topUp.Status)
+	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, 102))
+}
+
+func TestRechargeAlipay_CompletesPendingOfficialAlipayTopUp(t *testing.T) {
+	truncateTables(t)
+	originalQuotaPerUnit := common.QuotaPerUnit
+	common.QuotaPerUnit = 1000
+	t.Cleanup(func() {
+		common.QuotaPerUnit = originalQuotaPerUnit
+	})
+
+	insertUserForPaymentGuardTest(t, 103, 0)
+	insertTopUpForPaymentGuardTest(t, "alipay-success", 103, PaymentProviderAlipay)
+
+	require.NoError(t, RechargeAlipay("alipay-success", "127.0.0.1"))
+
+	assert.Equal(t, common.TopUpStatusSuccess, getTopUpStatusForPaymentGuardTest(t, "alipay-success"))
+	assert.Equal(t, 2000, getUserQuotaForPaymentGuardTest(t, 103))
+}
+
 func TestManualCompleteTopUpDoesNotCreateAffiliateRebate(t *testing.T) {
 	truncateTables(t)
 	originalPaymentSetting := *operation_setting.GetPaymentSetting()

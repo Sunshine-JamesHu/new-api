@@ -4245,6 +4245,26 @@
     "whsec_xxx 的 Webhook 签名密钥，敏感信息不显示": "Khóa chữ ký Webhook cho whsec_xxx, thông tin nhạy cảm không được hiển thị",
     "Will transfer": "Se chuyen",
     "Worker地址": "Địa chỉ Worker",
-    "Worker密钥": "Khóa Worker"
+    "Worker密钥": "Khóa Worker",
+    "支付宝官方": "Alipay chính thức",
+    "支付宝官方设置": "Cài đặt Alipay chính thức",
+    "这是支付宝官方接口，不是易支付接口。": "Đây là cổng Alipay chính thức, không phải Epay.",
+    "支付宝异步通知地址": "URL thông báo bất đồng bộ Alipay",
+    "桌面端默认优先展示扫码支付，未开通当面付时可切换为跳转支付。": "Trên máy tính, mặc định ưu tiên thanh toán bằng mã QR. Hãy chuyển sang chế độ chuyển hướng nếu chưa bật thanh toán trực tiếp.",
+    "支付宝 App ID": "Alipay App ID",
+    "支付宝同步回跳地址": "URL quay lại Alipay",
+    "留空则默认回到本站账单页面": "Để trống để mặc định quay lại trang hóa đơn của trang này",
+    "支付宝应用私钥": "Khóa riêng ứng dụng Alipay",
+    "留空则不更新密钥": "Để trống để giữ khóa hiện tại",
+    "支付宝公钥": "Khóa công khai Alipay",
+    "桌面端支付模式": "Chế độ thanh toán trên máy tính",
+    "优先扫码，失败后跳转": "Ưu tiên QR, dự phòng chuyển hướng",
+    "始终跳转支付宝收银台": "Luôn chuyển hướng đến quầy thanh toán Alipay",
+    "未开通当面付时请选择跳转模式": "Chọn chế độ chuyển hướng nếu chưa bật thanh toán trực tiếp",
+    "更新支付宝官方设置": "Cập nhật cài đặt Alipay chính thức",
+    "管理员未开启支付宝官方充值！": "Quản trị viên chưa bật nạp tiền Alipay chính thức.",
+    "支付宝二维码已打开": "Đã mở mã QR Alipay",
+    "支付宝扫码支付": "Thanh toán QR Alipay",
+    "请使用支付宝扫描二维码完成支付。": "Dùng Alipay quét mã QR để hoàn tất thanh toán."
   }
 }

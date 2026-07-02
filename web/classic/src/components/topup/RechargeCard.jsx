@@ -53,10 +53,18 @@ import SubscriptionPlansCard from './SubscriptionPlansCard';
 
 const { Text } = Typography;
 
+function getPaymentKey(method) {
+  if (method?.type === 'alipay' && method?.provider === 'alipay') {
+    return 'alipay:official';
+  }
+  return method?.payment_key || method?.type || '';
+}
+
 const RechargeCard = ({
   t,
   enableOnlineTopUp,
   enableStripeTopUp,
+  enableAlipayTopUp,
   enableCreemTopUp,
   creemProducts,
   creemPreTopUp,
@@ -232,6 +240,7 @@ const RechargeCard = ({
           </div>
         ) : enableOnlineTopUp ||
           enableStripeTopUp ||
+          enableAlipayTopUp ||
           enableCreemTopUp ||
           enableWaffoTopUp ||
           enableWaffoPancakeTopUp ? (
@@ -242,6 +251,7 @@ const RechargeCard = ({
             <div className='space-y-6'>
               {(enableOnlineTopUp ||
                 enableStripeTopUp ||
+                enableAlipayTopUp ||
                 enableWaffoTopUp ||
                 enableWaffoPancakeTopUp) && (
                 <Row gutter={12}>
@@ -252,6 +262,7 @@ const RechargeCard = ({
                       disabled={
                         !enableOnlineTopUp &&
                         !enableStripeTopUp &&
+                        !enableAlipayTopUp &&
                         !enableWaffoTopUp &&
                         !enableWaffoPancakeTopUp
                       }
@@ -314,30 +325,36 @@ const RechargeCard = ({
                             const minTopupVal =
                               Number(payMethod.min_topup) || 0;
                             const isStripe = payMethod.type === 'stripe';
+                            const isOfficialAlipay =
+                              payMethod.type === 'alipay' &&
+                              payMethod.provider === 'alipay';
                             const isWaffo =
                               typeof payMethod.type === 'string' &&
                               payMethod.type.startsWith('waffo:');
+                            const paymentKey = getPaymentKey(payMethod);
                             const isWaffoPancake =
                               payMethod.type === 'waffo_pancake';
                             const disabled =
                               (!enableOnlineTopUp &&
                                 !isStripe &&
+                                !isOfficialAlipay &&
                                 !isWaffo &&
                                 !isWaffoPancake) ||
                               (!enableStripeTopUp && isStripe) ||
+                              (!enableAlipayTopUp && isOfficialAlipay) ||
                               (!enableWaffoTopUp && isWaffo) ||
                               (!enableWaffoPancakeTopUp && isWaffoPancake) ||
                               minTopupVal > Number(topUpCount || 0);
 
                             const buttonEl = (
                               <Button
-                                key={payMethod.type}
+                                key={paymentKey}
                                 theme='outline'
                                 type='tertiary'
-                                onClick={() => preTopUp(payMethod.type)}
+                                onClick={() => preTopUp(paymentKey)}
                                 disabled={disabled}
                                 loading={
-                                  paymentLoading && payWay === payMethod.type
+                                  paymentLoading && payWay === paymentKey
                                 }
                                 icon={
                                   payMethod.type === 'alipay' ? (
@@ -394,12 +411,12 @@ const RechargeCard = ({
                                   ' ' +
                                   minTopupVal
                                 }
-                                key={payMethod.type}
+                                key={paymentKey}
                               >
                                 {buttonEl}
                               </Tooltip>
                             ) : (
-                              <React.Fragment key={payMethod.type}>
+                              <React.Fragment key={paymentKey}>
                                 {buttonEl}
                               </React.Fragment>
                             );
@@ -411,7 +428,10 @@ const RechargeCard = ({
                 </Row>
               )}
 
-              {(enableOnlineTopUp || enableStripeTopUp || enableWaffoTopUp) && (
+              {(enableOnlineTopUp ||
+                enableStripeTopUp ||
+                enableAlipayTopUp ||
+                enableWaffoTopUp) && (
                 <Form.Slot
                   label={
                     <div className='flex items-center gap-2'>
@@ -684,6 +704,7 @@ const RechargeCard = ({
                 payMethods={payMethods}
                 enableOnlineTopUp={enableOnlineTopUp}
                 enableStripeTopUp={enableStripeTopUp}
+                enableAlipayTopUp={enableAlipayTopUp}
                 enableCreemTopUp={enableCreemTopUp}
                 billingPreference={billingPreference}
                 onChangeBillingPreference={onChangeBillingPreference}

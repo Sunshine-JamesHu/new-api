@@ -38,6 +38,11 @@ export type AmountResponse = ApiResponse<string>
 export type PaymentResponse = ApiResponse<Record<string, unknown>> & {
   url?: string
 }
+export type AlipayPaymentResponse = ApiResponse<{
+  trade_no: string
+  pay_url?: string
+  qr_code?: string
+}>
 export type StripePaymentResponse = ApiResponse<{ pay_link: string }>
 export type AffiliateCodeResponse = ApiResponse<string>
 export type AffiliateTransferResponse = ApiResponse
@@ -94,6 +99,8 @@ export interface PaymentMethod {
   name: string
   /** Payment method type identifier */
   type: string
+  /** Optional backend provider identifier for methods with the same type */
+  provider?: string
   /** Legacy optional color for UI display */
   color?: string
   /** Minimum topup amount for this payment method */
@@ -124,6 +131,8 @@ export interface TopupInfo {
   enable_online_topup: boolean
   /** Whether Stripe topup is enabled */
   enable_stripe_topup: boolean
+  /** Whether official Alipay topup is enabled */
+  enable_alipay_topup?: boolean
   /** Available payment methods */
   pay_methods: PaymentMethod[]
   /** Minimum topup amount for online topup */

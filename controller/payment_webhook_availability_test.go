@@ -1,10 +1,16 @@
 package controller
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -166,4 +172,113 @@ func TestEpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 
 	operation_setting.PayMethods = nil
 	require.False(t, isEpayWebhookEnabled())
+}
+
+func TestAlipayTopUpInfoKeepsLegacyEpayAlipaySeparate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	confirmPaymentComplianceForTest(t)
+	originalAppID := setting.AlipayAppId
+	originalPrivateKey := setting.AlipayPrivateKey
+	originalPublicKey := setting.AlipayPublicKey
+	originalPayMethods := operation_setting.PayMethods
+	t.Cleanup(func() {
+		setting.AlipayAppId = originalAppID
+		setting.AlipayPrivateKey = originalPrivateKey
+		setting.AlipayPublicKey = originalPublicKey
+		operation_setting.PayMethods = originalPayMethods
+	})
+
+	setting.AlipayAppId = "2021000000000000"
+	setting.AlipayPrivateKey = "app-private-key"
+	setting.AlipayPublicKey = "alipay-public-key"
+	operation_setting.PayMethods = []map[string]string{
+		{"name": "Legacy Epay Alipay", "type": model.PaymentMethodAlipay},
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/user/topup", nil)
+
+	GetTopUpInfo(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var body struct {
+		Success bool `json:"success"`
+		Data    struct {
+			EnableOnlineTopup bool                `json:"enable_online_topup"`
+			EnableAlipayTopup bool                `json:"enable_alipay_topup"`
+			PayMethods        []map[string]string `json:"pay_methods"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(w.Body.Bytes(), &body))
+	require.True(t, body.Success)
+	assert.True(t, body.Data.EnableAlipayTopup)
+	assert.False(t, body.Data.EnableOnlineTopup)
+	require.Len(t, body.Data.PayMethods, 2)
+
+	assert.Equal(t, "Legacy Epay Alipay", body.Data.PayMethods[0]["name"])
+	assert.Equal(t, model.PaymentMethodAlipay, body.Data.PayMethods[0]["type"])
+	assert.Empty(t, body.Data.PayMethods[0]["provider"])
+
+	assert.Equal(t, model.PaymentMethodAlipay, body.Data.PayMethods[1]["type"])
+	assert.Equal(t, model.PaymentProviderAlipay, body.Data.PayMethods[1]["provider"])
+}
+
+func TestAlipayTopUpInfoRequiresConfigAndCompliance(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	paymentSetting := operation_setting.GetPaymentSetting()
+	originalConfirmed := paymentSetting.ComplianceConfirmed
+	originalTermsVersion := paymentSetting.ComplianceTermsVersion
+	originalAppID := setting.AlipayAppId
+	originalPrivateKey := setting.AlipayPrivateKey
+	originalPublicKey := setting.AlipayPublicKey
+	originalPayMethods := operation_setting.PayMethods
+	t.Cleanup(func() {
+		paymentSetting.ComplianceConfirmed = originalConfirmed
+		paymentSetting.ComplianceTermsVersion = originalTermsVersion
+		setting.AlipayAppId = originalAppID
+		setting.AlipayPrivateKey = originalPrivateKey
+		setting.AlipayPublicKey = originalPublicKey
+		operation_setting.PayMethods = originalPayMethods
+	})
+
+	operation_setting.PayMethods = []map[string]string{
+		{"name": "Legacy Epay Alipay", "type": model.PaymentMethodAlipay},
+	}
+	setting.AlipayAppId = "2021000000000000"
+	setting.AlipayPrivateKey = "app-private-key"
+	setting.AlipayPublicKey = "alipay-public-key"
+	paymentSetting.ComplianceConfirmed = false
+	paymentSetting.ComplianceTermsVersion = ""
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/user/topup", nil)
+	GetTopUpInfo(c)
+
+	var body struct {
+		Success bool `json:"success"`
+		Data    struct {
+			EnableAlipayTopup bool                `json:"enable_alipay_topup"`
+			PayMethods        []map[string]string `json:"pay_methods"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(w.Body.Bytes(), &body))
+	require.True(t, body.Success)
+	assert.False(t, body.Data.EnableAlipayTopup)
+	assert.Empty(t, body.Data.PayMethods)
+
+	paymentSetting.ComplianceConfirmed = true
+	paymentSetting.ComplianceTermsVersion = operation_setting.CurrentComplianceTermsVersion
+	setting.AlipayPublicKey = ""
+	w = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/user/topup", nil)
+	GetTopUpInfo(c)
+
+	require.NoError(t, common.Unmarshal(w.Body.Bytes(), &body))
+	require.True(t, body.Success)
+	assert.False(t, body.Data.EnableAlipayTopup)
+	require.Len(t, body.Data.PayMethods, 1)
+	assert.Empty(t, body.Data.PayMethods[0]["provider"])
 }

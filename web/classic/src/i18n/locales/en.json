@@ -3857,6 +3857,26 @@
     "whsec_xxx 的 Webhook 签名密钥，敏感信息不显示": "Webhook signature key for whsec_xxx, sensitive information not displayed",
     "Will transfer": "Will transfer",
     "Worker地址": "Worker Address",
-    "Worker密钥": "Worker Key"
+    "Worker密钥": "Worker Key",
+    "支付宝官方": "Official Alipay",
+    "支付宝官方设置": "Official Alipay settings",
+    "这是支付宝官方接口，不是易支付接口。": "This is the official Alipay gateway, not Epay.",
+    "支付宝异步通知地址": "Alipay async notification URL",
+    "桌面端默认优先展示扫码支付，未开通当面付时可切换为跳转支付。": "Desktop checkout shows QR payment first by default. Switch to redirect mode if face-to-face payment is not enabled.",
+    "支付宝 App ID": "Alipay App ID",
+    "支付宝同步回跳地址": "Alipay return URL",
+    "留空则默认回到本站账单页面": "Leave blank to return to this site's billing page by default",
+    "支付宝应用私钥": "Alipay app private key",
+    "留空则不更新密钥": "Leave blank to keep the current key",
+    "支付宝公钥": "Alipay public key",
+    "桌面端支付模式": "Desktop payment mode",
+    "优先扫码，失败后跳转": "QR first, fallback to redirect",
+    "始终跳转支付宝收银台": "Always redirect to Alipay checkout",
+    "未开通当面付时请选择跳转模式": "Select redirect mode if face-to-face payment is not enabled",
+    "更新支付宝官方设置": "Update official Alipay settings",
+    "管理员未开启支付宝官方充值！": "The administrator has not enabled official Alipay top-up.",
+    "支付宝二维码已打开": "Alipay QR code opened",
+    "支付宝扫码支付": "Alipay QR payment",
+    "请使用支付宝扫描二维码完成支付。": "Use Alipay to scan the QR code and complete payment."
   }
 }
