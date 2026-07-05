@@ -92,8 +92,8 @@ export function AffiliateRewardsCard({
             [t('Total Earned'), formatQuota(user?.aff_history_quota ?? 0)],
             [t('Invites'), String(user?.aff_count ?? 0)],
           ].map(([label, value]) => (
-            <div key={label}>
-              <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
+            <div key={label} className='min-w-0'>
+              <div className='text-muted-foreground min-h-7 text-[10px] leading-tight font-medium'>
                 {label}
               </div>
               <div className='mt-0.5 truncate text-sm font-semibold tabular-nums'>

@@ -11,8 +11,7 @@ const semiUiDir = path.resolve(
   '../..',
 )
 const semiDateFnsDir = path.resolve(
-  semiUiDir,
-  '../semi-foundation/node_modules/date-fns',
+  path.dirname(require.resolve('date-fns')),
 )
 
 export default defineConfig(({ envMode }) => {
