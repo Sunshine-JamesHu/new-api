@@ -41,6 +41,14 @@ func withRelayBillingConfig(t *testing.T, values map[string]string) {
 	require.NoError(t, config.GlobalConfig.LoadFromDB(values))
 }
 
+func testPriceDataWithOtherRatios(ratios map[string]float64) types.PriceData {
+	priceData := types.PriceData{}
+	for key, ratio := range ratios {
+		priceData.AddOtherRatio(key, ratio)
+	}
+	return priceData
+}
+
 func TestRelayTaskSubmitJimengUsesMappedReqKeyAndMetadataPrompt(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service.InitHttpClient()
@@ -118,31 +126,28 @@ func TestApplyConfiguredPerSecondMultipliersOverridesRequestFactors(t *testing.T
 
 	info := &relaycommon.RelayInfo{
 		OriginModelName: "video-model",
-		PriceData: types.PriceData{
-			OtherRatios: map[string]float64{
-				"seconds":          5,
-				"resolution-1080P": 1,
-				"audio":            1.2,
-			},
-		},
+		PriceData: testPriceDataWithOtherRatios(map[string]float64{
+			"seconds":          5,
+			"resolution-1080P": 1,
+			"audio":            1.2,
+		}),
 	}
 
 	applyConfiguredPerSecondMultipliers(info)
 
-	require.Equal(t, 5.0, info.PriceData.OtherRatios["seconds"])
-	require.Equal(t, 1.777778, info.PriceData.OtherRatios["resolution-1080P"])
-	require.Equal(t, 2.0, info.PriceData.OtherRatios["audio"])
+	otherRatios := info.PriceData.OtherRatios()
+	require.Equal(t, 5.0, otherRatios["seconds"])
+	require.Equal(t, 1.777778, otherRatios["resolution-1080P"])
+	require.Equal(t, 2.0, otherRatios["audio"])
 
 	ratioInfo := &relaycommon.RelayInfo{
 		OriginModelName: "ratio-model",
-		PriceData: types.PriceData{
-			OtherRatios: map[string]float64{"resolution-1080P": 1},
-		},
+		PriceData:       testPriceDataWithOtherRatios(map[string]float64{"resolution-1080P": 1}),
 	}
 
 	applyConfiguredPerSecondMultipliers(ratioInfo)
 
-	require.Equal(t, 1.0, ratioInfo.PriceData.OtherRatios["resolution-1080P"])
+	require.Equal(t, 1.0, ratioInfo.PriceData.OtherRatios()["resolution-1080P"])
 }
 
 func TestRelayTaskSubmitHappyHorsePerSecondBillingAppliesToQuotaAndHeader(t *testing.T) {
@@ -200,11 +205,11 @@ func TestRelayTaskSubmitHappyHorsePerSecondBillingAppliesToQuotaAndHeader(t *tes
 	require.Equal(t, map[string]float64{
 		"seconds":          6,
 		"resolution-1080P": 2,
-	}, info.PriceData.OtherRatios)
+	}, info.PriceData.OtherRatios())
 
 	var headerRatios map[string]float64
 	require.NoError(t, common.Unmarshal([]byte(recorder.Header().Get("X-New-Api-Other-Ratios")), &headerRatios))
-	require.Equal(t, info.PriceData.OtherRatios, headerRatios)
+	require.Equal(t, info.PriceData.OtherRatios(), headerRatios)
 
 	var openAIVideo dto.OpenAIVideo
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &openAIVideo))
@@ -272,6 +277,6 @@ func TestRelayTaskSubmitNewApiVideoUsesLocalRequestRatiosForQuota(t *testing.T) 
 	require.Equal(t, map[string]float64{
 		"seconds":         5,
 		"resolution-720P": 1,
-	}, info.PriceData.OtherRatios)
+	}, info.PriceData.OtherRatios())
 	require.JSONEq(t, `{"seconds":5,"resolution-720P":1}`, recorder.Header().Get("X-New-Api-Other-Ratios"))
 }
