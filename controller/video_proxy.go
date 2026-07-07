@@ -68,11 +68,16 @@ func VideoProxy(c *gin.Context) {
 
 	var videoURL string
 	proxy := channel.GetSetting().Proxy
-	client, err := service.GetHttpClientWithProxy(proxy)
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to create proxy client for task %s: %s", taskID, err.Error()))
-		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy client")
-		return
+	client := service.GetSSRFProtectedHTTPClient()
+	if proxy != "" {
+		// 渠道代理路径的连接由代理侧建立，无法做拨号时逐 IP 校验，
+		// 因此后面对 videoURL 保留请求前的一次性 SSRF 校验。
+		client, err = service.GetHttpClientWithProxy(proxy)
+		if err != nil {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to create proxy client for task %s: %s", taskID, err.Error()))
+			videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy client")
+			return
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
