@@ -50,6 +50,7 @@ import {
   getFirstResponseTimeColor,
   getResponseTimeColor,
   getTieredBillingSummary,
+  getPerSecondResolution,
   hasAnyCacheTokens,
   parseLogOther,
   isViolationFeeLog,
@@ -95,20 +96,6 @@ function getGroupRatioText(other: LogOtherData | null): string | null {
   }
 
   return null
-}
-
-function getPerSecondResolution(other: LogOtherData): {
-  key?: string
-  ratio: number
-} {
-  const key = Object.keys(other)
-    .filter((item) => item.startsWith('resolution-'))
-    .sort()[0] as `resolution-${string}` | undefined
-  const ratio = key ? other[key] : undefined
-  return {
-    key,
-    ratio: ratio != null && Number.isFinite(ratio) && ratio > 0 ? ratio : 1,
-  }
 }
 
 function splitQuotaDisplay(value: string): { prefix: string; amount: string } {
@@ -237,15 +224,13 @@ function buildTypeDetailSegments(
       })
     }
   } else {
-    const isPerSecond =
-      other.billing_mode === 'per_second' && other.model_price != null
-    if (isPerSecond) {
+    if (other.billing_mode === 'per_second' && other.model_price != null) {
       const seconds = Number(other.seconds)
       const resolution = getPerSecondResolution(other)
-      const unitPrice = other.model_price! * resolution.ratio
+      const unitPrice = other.model_price * resolution.ratio
       segments.push({
         text: resolution.key
-          ? `${t('Per-second')} (${resolution.key}) · ${formatBillingCurrencyFromUSD(unitPrice, priceOpts)}/s`
+          ? `${t('Per-second')} (${resolution.label}) · ${formatBillingCurrencyFromUSD(unitPrice, priceOpts)}/s`
           : `${t('Per-second')} · ${formatBillingCurrencyFromUSD(unitPrice, priceOpts)}/s`,
       })
       if (Number.isFinite(seconds) && seconds > 0) {
@@ -270,10 +255,9 @@ function buildTypeDetailSegments(
       return segments
     }
 
-    const isPerCall = isPerCallBilling(other.model_price)
-    if (isPerCall) {
+    if (other.model_price != null && isPerCallBilling(other.model_price)) {
       segments.push({
-        text: `${t('Per-call')} · ${formatBillingCurrencyFromUSD(other.model_price!, priceOpts)}`,
+        text: `${t('Per-call')} · ${formatBillingCurrencyFromUSD(other.model_price, priceOpts)}`,
       })
     } else if (other.model_ratio != null) {
       const inputPriceUSD = other.model_ratio * 2.0

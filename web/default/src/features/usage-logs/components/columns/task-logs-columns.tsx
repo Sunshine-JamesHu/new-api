@@ -36,6 +36,7 @@ import {
   type AudioClip,
 } from '../dialogs/audio-preview-dialog'
 import { FailReasonDialog } from '../dialogs/fail-reason-dialog'
+import { TaskDetailsDialog } from '../dialogs/task-details-dialog'
 import { useUsageLogsContext } from '../usage-logs-provider'
 import {
   createDurationColumn,
@@ -166,24 +167,41 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
     {
       accessorKey: 'task_id',
       header: t('Task ID'),
-      cell: ({ row }) => {
+      cell: function TaskIdCell({ row }) {
         const log = row.original
         const taskId = row.getValue('task_id') as string
+        const [dialogOpen, setDialogOpen] = useState(false)
+
         if (!taskId) {
           return <span className='text-muted-foreground/60 text-xs'>-</span>
         }
         return (
           <div className='flex max-w-[170px] flex-col gap-0.5'>
-            <StatusBadge
-              label={taskId}
-              copyText={taskId}
-              variant='neutral'
-              size='sm'
-              className='border-border/60 bg-muted/30 !text-foreground max-w-full truncate rounded-md border px-1.5 py-0.5 font-mono'
-            />
+            <button
+              type='button'
+              className='max-w-full text-left'
+              onClick={(e) => {
+                e.stopPropagation()
+                setDialogOpen(true)
+              }}
+              title={t('Details')}
+            >
+              <StatusBadge
+                label={taskId}
+                variant='neutral'
+                size='sm'
+                copyable={false}
+                className='border-border/60 bg-muted/30 !text-foreground max-w-full cursor-pointer truncate rounded-md border px-1.5 py-0.5 font-mono hover:underline'
+              />
+            </button>
             <span className='text-muted-foreground/60 truncate text-[11px]'>
               {t(log.platform)} · {t(taskActionMapper.getLabel(log.action))}
             </span>
+            <TaskDetailsDialog
+              log={log}
+              open={dialogOpen}
+              onOpenChange={setDialogOpen}
+            />
           </div>
         )
       },
@@ -245,10 +263,16 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
           log.action === TASK_ACTIONS.REFERENCE_GENERATE ||
           log.action === TASK_ACTIONS.REMIX_GENERATE
         const isSuccess = status === TASK_STATUS.SUCCESS
-        const isUrl = failReason?.startsWith('http')
+        const legacyResultUrl = failReason?.startsWith('http')
+          ? failReason
+          : undefined
+        const resultUrl = log.result_url || legacyResultUrl
 
-        if (isSuccess && isVideoTask && isUrl) {
-          const videoUrl = `/v1/videos/${log.task_id}/content`
+        if (isSuccess && isVideoTask && resultUrl) {
+          const videoUrl =
+            String(log.platform) === '51' && log.task_id
+              ? `/v1/videos/${encodeURIComponent(log.task_id)}/content`
+              : resultUrl
           return (
             <a
               href={videoUrl}

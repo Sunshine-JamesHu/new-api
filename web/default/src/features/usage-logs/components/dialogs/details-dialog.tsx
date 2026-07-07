@@ -50,6 +50,7 @@ import {
   parseAuditLine,
   decodeBillingExprB64,
   getTieredBillingSummary,
+  getPerSecondResolution,
   hasAnyCacheTokens,
   isViolationFeeLog,
   getFirstResponseTimeColor,
@@ -191,6 +192,34 @@ function BillingBreakdown(props: {
       rows.push({
         label: t('Matched Tier'),
         value: t('No matching results'),
+      })
+    }
+  } else if (other.billing_mode === 'per_second' && other.model_price != null) {
+    rows.push({ label: t('Billing Mode'), value: t('Per-second') })
+    const resolution = getPerSecondResolution(other)
+    const unitPrice = other.model_price * resolution.ratio
+    rows.push({
+      label: t('Per-second price'),
+      value: `${fmtPrice(unitPrice)}/s`,
+    })
+    const seconds = Number(other.seconds)
+    if (Number.isFinite(seconds) && seconds > 0) {
+      const formattedSeconds =
+        seconds % 1 === 0
+          ? String(seconds)
+          : seconds.toFixed(4).replace(/\.?0+$/, '')
+      rows.push({
+        label: t('Seconds'),
+        value: formattedSeconds,
+      })
+    }
+    if (resolution.label) {
+      rows.push({
+        label: t('Resolution'),
+        value:
+          resolution.ratio === 1
+            ? resolution.label
+            : `${resolution.label} (${formatRatio(resolution.ratio)}x)`,
       })
     }
   } else if (isPerCall) {

@@ -279,6 +279,22 @@ export function getTieredBillingSummary(
   return { tiers, tier, priceEntries }
 }
 
+export function getPerSecondResolution(other: LogOtherData | null): {
+  key?: `resolution-${string}`
+  label?: string
+  ratio: number
+} {
+  const key = Object.keys(other ?? {})
+    .filter((item) => item.startsWith('resolution-'))
+    .sort()[0] as `resolution-${string}` | undefined
+  const ratio = key ? other?.[key] : undefined
+  return {
+    key,
+    label: key?.replace(/^resolution-/, ''),
+    ratio: ratio != null && Number.isFinite(ratio) && ratio > 0 ? ratio : 1,
+  }
+}
+
 /**
  * Calculate duration and return formatted result with color variant
  * @param submitTime - Submit timestamp
