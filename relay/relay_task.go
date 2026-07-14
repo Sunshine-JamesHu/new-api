@@ -262,10 +262,10 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 }
 
 func applyConfiguredPerSecondMultipliers(info *relaycommon.RelayInfo) {
-	if info == nil || !billing_setting.IsPerSecondBilling(info.OriginModelName) || len(info.PriceData.OtherRatios) == 0 {
+	if info == nil || !billing_setting.IsPerSecondBilling(info.OriginModelName) || len(info.PriceData.OtherRatios()) == 0 {
 		return
 	}
-	for key := range info.PriceData.OtherRatios {
+	for key := range info.PriceData.OtherRatios() {
 		if multiplier, ok := billing_setting.GetPerSecondMultiplier(info.OriginModelName, key); ok {
 			info.PriceData.AddOtherRatio(key, multiplier)
 		}

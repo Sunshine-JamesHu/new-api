@@ -52,31 +52,29 @@ func TestApplyConfiguredPerSecondMultipliersOverridesRequestFactors(t *testing.T
 
 	info := &relaycommon.RelayInfo{
 		OriginModelName: "video-model",
-		PriceData: types.PriceData{
-			OtherRatios: map[string]float64{
-				"seconds":          5,
-				"resolution-1080P": 1,
-				"audio":            1.2,
-			},
-		},
+		PriceData:       types.PriceData{},
 	}
+	require.True(t, info.PriceData.ReplaceOtherRatios(map[string]float64{
+		"seconds":          5,
+		"resolution-1080P": 1,
+		"audio":            1.2,
+	}))
 
 	applyConfiguredPerSecondMultipliers(info)
 
-	require.Equal(t, 5.0, info.PriceData.OtherRatios["seconds"])
-	require.Equal(t, 1.777778, info.PriceData.OtherRatios["resolution-1080P"])
-	require.Equal(t, 2.0, info.PriceData.OtherRatios["audio"])
+	require.Equal(t, 5.0, info.PriceData.OtherRatios()["seconds"])
+	require.Equal(t, 1.777778, info.PriceData.OtherRatios()["resolution-1080P"])
+	require.Equal(t, 2.0, info.PriceData.OtherRatios()["audio"])
 
 	ratioInfo := &relaycommon.RelayInfo{
 		OriginModelName: "ratio-model",
-		PriceData: types.PriceData{
-			OtherRatios: map[string]float64{"resolution-1080P": 1},
-		},
+		PriceData:       types.PriceData{},
 	}
+	require.True(t, ratioInfo.PriceData.ReplaceOtherRatios(map[string]float64{"resolution-1080P": 1}))
 
 	applyConfiguredPerSecondMultipliers(ratioInfo)
 
-	require.Equal(t, 1.0, ratioInfo.PriceData.OtherRatios["resolution-1080P"])
+	require.Equal(t, 1.0, ratioInfo.PriceData.OtherRatios()["resolution-1080P"])
 }
 
 func TestRelayTaskSubmitHappyHorsePerSecondBillingAppliesToQuotaAndHeader(t *testing.T) {
@@ -134,11 +132,11 @@ func TestRelayTaskSubmitHappyHorsePerSecondBillingAppliesToQuotaAndHeader(t *tes
 	require.Equal(t, map[string]float64{
 		"seconds":          6,
 		"resolution-1080P": 2,
-	}, info.PriceData.OtherRatios)
+	}, info.PriceData.OtherRatios())
 
 	var headerRatios map[string]float64
 	require.NoError(t, common.Unmarshal([]byte(recorder.Header().Get("X-New-Api-Other-Ratios")), &headerRatios))
-	require.Equal(t, info.PriceData.OtherRatios, headerRatios)
+	require.Equal(t, info.PriceData.OtherRatios(), headerRatios)
 
 	var openAIVideo dto.OpenAIVideo
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &openAIVideo))
