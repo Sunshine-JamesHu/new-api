@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { IconBadge } from '@/components/ui/icon-badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -205,6 +206,7 @@ export function RechargeFormCard({
       title={t('Add Funds')}
       description={t('Choose an amount and payment method')}
       icon={<WalletCards className='h-4 w-4' />}
+      iconTone='success'
       disableHoverEffect
       action={
         onOpenBilling ? (
@@ -414,8 +416,8 @@ export function RechargeFormCard({
                     </Label>
                     <div className='grid grid-cols-2 gap-1.5 sm:gap-3 lg:grid-cols-3'>
                       {waffoPayMethods?.map((method, index) => {
-                        const waffoMethodKey = `${method.name || 'waffo'}-${index}`
                         const loadingKey = `waffo-${index}`
+                        const methodKey = `${method.payMethodType ?? 'unknown'}-${method.payMethodName ?? method.name}`
                         const waffoMin = waffoMinTopup || 0
                         const belowMin = waffoMin > topupAmount
                         const disabledReason = belowMin
@@ -426,9 +428,13 @@ export function RechargeFormCard({
                         const disabledLabel = belowMin
                           ? `${t('Minimum:')} ${waffoMin}`
                           : undefined
-                        let waffoIcon = getPaymentIcon('waffo')
-                        if (method.icon) {
-                          waffoIcon = (
+                        let methodIcon = getPaymentIcon('waffo')
+                        if (paymentLoading === loadingKey) {
+                          methodIcon = (
+                            <Loader2 className='h-4 w-4 animate-spin' />
+                          )
+                        } else if (method.icon) {
+                          methodIcon = (
                             <img
                               src={method.icon}
                               alt={method.name}
@@ -436,15 +442,10 @@ export function RechargeFormCard({
                             />
                           )
                         }
-                        if (paymentLoading === loadingKey) {
-                          waffoIcon = (
-                            <Loader2 className='h-4 w-4 animate-spin' />
-                          )
-                        }
 
                         const button = (
                           <Button
-                            key={waffoMethodKey}
+                            key={methodKey}
                             variant='outline'
                             onClick={() => onWaffoMethodSelect(method, index)}
                             disabled={belowMin || !!paymentLoading}
@@ -456,7 +457,7 @@ export function RechargeFormCard({
                             }
                             className='min-h-14 min-w-0 justify-start gap-2 rounded-lg px-3 py-2 text-left'
                           >
-                            {waffoIcon}
+                            {methodIcon}
                             <span className='flex min-w-0 flex-col items-start gap-0.5'>
                               <span className='max-w-full truncate'>
                                 {method.name}
@@ -471,7 +472,7 @@ export function RechargeFormCard({
                         )
 
                         return belowMin ? (
-                          <TooltipProvider key={waffoMethodKey}>
+                          <TooltipProvider key={methodKey}>
                             <Tooltip>
                               <TooltipTrigger render={button} />
                               <TooltipContent>{disabledReason}</TooltipContent>
@@ -517,7 +518,9 @@ export function RechargeFormCard({
       {redemptionEnabled ? (
         <div className='space-y-2.5 border-t pt-4 sm:space-y-3 sm:pt-6'>
           <div className='flex items-center gap-2'>
-            <Gift className='text-muted-foreground h-4 w-4' />
+            <IconBadge tone='warning' size='xs'>
+              <Gift />
+            </IconBadge>
             <Label
               htmlFor='redemption-code'
               className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
