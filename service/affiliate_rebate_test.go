@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,6 +24,85 @@ func withAffiliateRebateSetting(t *testing.T, enabled bool, rate float64) {
 	t.Cleanup(func() {
 		*operation_setting.GetPaymentSetting() = original
 	})
+}
+
+func TestResolveRegistrationAffiliate(t *testing.T) {
+	truncate(t)
+	originalGroupRatios := ratio_setting.GroupRatio2JSONString()
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"cockpit":1,"private":1}`))
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalGroupRatios))
+	})
+
+	require.NoError(t, model.DB.Create(&model.User{
+		Id:       1201,
+		Username: "cockpit_inviter",
+		AffCode:  "cockpit",
+		Status:   common.UserStatusEnabled,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.User{
+		Id:       1202,
+		Username: "standard_inviter",
+		AffCode:  "standard",
+		Status:   common.UserStatusEnabled,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.User{
+		Id:       1203,
+		Username: "disabled_inviter",
+		AffCode:  "private",
+		Status:   common.UserStatusDisabled,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.User{
+		Id:       1204,
+		Username: "case_sensitive_inviter",
+		AffCode:  "Cockpit",
+		Status:   common.UserStatusEnabled,
+	}).Error)
+
+	tests := []struct {
+		name    string
+		affCode string
+		want    RegistrationAffiliate
+	}{
+		{
+			name:    "valid invite code with matching group",
+			affCode: "cockpit",
+			want: RegistrationAffiliate{
+				InviterID: 1201,
+				Group:     "cockpit",
+			},
+		},
+		{
+			name:    "valid invite code without matching group",
+			affCode: "standard",
+			want: RegistrationAffiliate{
+				InviterID: 1202,
+			},
+		},
+		{
+			name:    "disabled inviter cannot assign matching group",
+			affCode: "private",
+			want:    RegistrationAffiliate{},
+		},
+		{
+			name:    "group matching is case sensitive",
+			affCode: "Cockpit",
+			want: RegistrationAffiliate{
+				InviterID: 1204,
+			},
+		},
+		{
+			name:    "matching group without inviter",
+			affCode: "missing",
+			want:    RegistrationAffiliate{},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, ResolveRegistrationAffiliate(test.affCode))
+		})
+	}
 }
 
 func TestAffiliateRebateMaturesAfterInviteeConsumesTopUpQuota(t *testing.T) {
