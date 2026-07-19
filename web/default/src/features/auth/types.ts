@@ -128,6 +128,8 @@ export interface SystemStatus {
     register_enabled?: boolean
     password_login_enabled?: boolean
     password_register_enabled?: boolean
+    affiliate_rebate_enabled?: boolean
+    affiliate_rebate_rate?: number
     custom_oauth_providers?: CustomOAuthProviderInfo[]
     [key: string]: unknown
   }
@@ -171,6 +173,8 @@ export interface SystemStatus {
   register_enabled?: boolean
   password_login_enabled?: boolean
   password_register_enabled?: boolean
+  affiliate_rebate_enabled?: boolean
+  affiliate_rebate_rate?: number
   custom_oauth_providers?: CustomOAuthProviderInfo[]
   [key: string]: unknown
 }
