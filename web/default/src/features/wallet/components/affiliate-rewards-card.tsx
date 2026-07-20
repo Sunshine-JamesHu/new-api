@@ -35,6 +35,7 @@ interface AffiliateRewardsCardProps {
   pendingRebateQuota?: number
   rebates?: AffiliateRebateRecord[]
   onTransfer: () => void
+  onShowInvitees: () => void
   complianceConfirmed?: boolean
   loading?: boolean
 }
@@ -45,6 +46,7 @@ export function AffiliateRewardsCard({
   pendingRebateQuota = 0,
   rebates = [],
   onTransfer,
+  onShowInvitees,
   complianceConfirmed = true,
   loading,
 }: AffiliateRewardsCardProps) {
@@ -86,23 +88,51 @@ export function AffiliateRewardsCard({
           </div>
         </div>
 
-        <div className='grid grid-cols-4 gap-1.5 text-center'>
-          {[
-            [t('Confirmed'), formatQuota(user?.aff_quota ?? 0)],
-            [t('Pending confirmation'), formatQuota(pendingRebateQuota)],
-            [t('Total Earned'), formatQuota(user?.aff_history_quota ?? 0)],
-            [t('Invites'), String(user?.aff_count ?? 0)],
-          ].map(([label, value]) => (
-            <div key={label} className='min-w-0'>
-              <div className='text-muted-foreground min-h-7 text-[10px] leading-tight font-medium'>
-                {label}
+          <div className='grid grid-cols-4 gap-1.5 text-center'>
+            {[
+              {
+                key: 'confirmed',
+                label: t('Confirmed'),
+                value: formatQuota(user?.aff_quota ?? 0),
+              },
+              {
+                key: 'pending',
+                label: t('Pending confirmation'),
+                value: formatQuota(pendingRebateQuota),
+              },
+              {
+                key: 'earned',
+                label: t('Total Earned'),
+                value: formatQuota(user?.aff_history_quota ?? 0),
+              },
+              {
+                key: 'invites',
+                label: t('Invites'),
+                value: String(user?.aff_count ?? 0),
+              },
+            ].map((stat) => (
+              <div key={stat.key} className='min-w-0'>
+                <div className='text-muted-foreground min-h-7 text-[10px] leading-tight font-medium'>
+                  {stat.label}
+                </div>
+                {stat.key === 'invites' ? (
+                  <Button
+                    variant='link'
+                    size='sm'
+                    className='mt-0.5 h-auto min-w-0 p-0 text-sm font-semibold tabular-nums'
+                    onClick={onShowInvitees}
+                    aria-label={t('View invite details')}
+                  >
+                    {stat.value}
+                  </Button>
+                ) : (
+                  <div className='mt-0.5 truncate text-sm font-semibold tabular-nums'>
+                    {stat.value}
+                  </div>
+                )}
               </div>
-              <div className='mt-0.5 truncate text-sm font-semibold tabular-nums'>
-                {value}
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
 
         <div className='flex items-center gap-2'>
           <Input
