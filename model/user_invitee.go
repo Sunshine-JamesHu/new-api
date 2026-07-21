@@ -2,19 +2,31 @@ package model
 
 import (
 	"errors"
+	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"gorm.io/gorm"
 )
 
 type UserInvitee struct {
-	Id          int            `json:"id"`
-	DisplayName string         `json:"display_name"`
-	CreatedAt   int64          `json:"created_at"`
-	UsedQuota   int            `json:"used_quota"`
-	Status      int            `json:"status"`
-	DeletedAt   gorm.DeletedAt `json:"-"`
-	Deleted     bool           `json:"deleted" gorm:"-"`
+	Id          int    `json:"id"`
+	DisplayName string `json:"display_name"`
+	CreatedAt   int64  `json:"created_at"`
+	IsNew       bool   `json:"is_new" gorm:"-"`
+}
+
+func maskInviteeDisplayName(displayName string) string {
+	runes := []rune(strings.TrimSpace(displayName))
+	switch len(runes) {
+	case 0:
+		return "***"
+	case 1:
+		return "*"
+	case 2:
+		return string(runes[0]) + "*"
+	default:
+		return string(runes[0]) + "***" + string(runes[len(runes)-1])
+	}
 }
 
 func GetUserInvitees(inviterId int, pageInfo *common.PageInfo) (invitees []*UserInvitee, total int64, err error) {
@@ -28,7 +40,7 @@ func GetUserInvitees(inviterId int, pageInfo *common.PageInfo) (invitees []*User
 	}
 
 	err = query.
-		Select("id", "display_name", "created_at", "used_quota", "status", "deleted_at").
+		Select("id", "display_name", "created_at").
 		Order("created_at DESC").
 		Order("id DESC").
 		Limit(pageInfo.GetPageSize()).
@@ -38,8 +50,12 @@ func GetUserInvitees(inviterId int, pageInfo *common.PageInfo) (invitees []*User
 		return nil, 0, err
 	}
 
+	now := time.Now().In(time.Local)
+	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	startOfTomorrow := startOfToday.AddDate(0, 0, 1)
 	for _, invitee := range invitees {
-		invitee.Deleted = invitee.DeletedAt.Valid
+		invitee.DisplayName = maskInviteeDisplayName(invitee.DisplayName)
+		invitee.IsNew = invitee.CreatedAt >= startOfToday.Unix() && invitee.CreatedAt < startOfTomorrow.Unix()
 	}
 	return invitees, total, nil
 }

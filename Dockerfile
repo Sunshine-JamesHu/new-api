@@ -18,7 +18,8 @@ ENV GOEXPERIMENT=greenteagc
 WORKDIR /build
 
 ADD go.mod go.sum ./
-RUN go mod download
+ARG GOPROXY=https://proxy.golang.org,direct
+RUN GOPROXY="$GOPROXY" go mod download
 
 COPY . .
 COPY --from=builder /build/web/dist ./web/dist

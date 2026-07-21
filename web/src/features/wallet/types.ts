@@ -281,9 +281,7 @@ export interface UserInvitee {
   id: number
   display_name: string
   created_at: number
-  used_quota: number
-  status: number
-  deleted: boolean
+  is_new: boolean
 }
 
 export interface InviteeHistoryResponse {

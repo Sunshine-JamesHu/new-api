@@ -2,6 +2,7 @@ package model
 
 import (
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/assert"
@@ -10,6 +11,8 @@ import (
 
 func TestGetUserInviteesScopesIncludesDeletedAndPaginates(t *testing.T) {
 	truncateTables(t)
+	now := time.Now().In(time.Local)
+	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 
 	inviter := User{
 		Username: "invite-list-owner",
@@ -32,7 +35,7 @@ func TestGetUserInviteesScopesIncludesDeletedAndPaginates(t *testing.T) {
 			Status:      common.UserStatusEnabled,
 			UsedQuota:   100,
 			InviterId:   inviter.Id,
-			CreatedAt:   1000,
+			CreatedAt:   startOfToday.Unix() + 1,
 		},
 		{
 			Username:    "invite-list-disabled",
@@ -41,7 +44,7 @@ func TestGetUserInviteesScopesIncludesDeletedAndPaginates(t *testing.T) {
 			Status:      common.UserStatusDisabled,
 			UsedQuota:   200,
 			InviterId:   inviter.Id,
-			CreatedAt:   2000,
+			CreatedAt:   startOfToday.Unix() - 1,
 		},
 		{
 			Username:    "invite-list-deleted",
@@ -50,7 +53,7 @@ func TestGetUserInviteesScopesIncludesDeletedAndPaginates(t *testing.T) {
 			Status:      common.UserStatusEnabled,
 			UsedQuota:   300,
 			InviterId:   inviter.Id,
-			CreatedAt:   3000,
+			CreatedAt:   startOfToday.Unix() + 2,
 		},
 		{
 			Username:    "invite-list-unrelated",
@@ -59,7 +62,7 @@ func TestGetUserInviteesScopesIncludesDeletedAndPaginates(t *testing.T) {
 			Status:      common.UserStatusEnabled,
 			UsedQuota:   400,
 			InviterId:   otherInviter.Id,
-			CreatedAt:   4000,
+			CreatedAt:   startOfToday.Unix() + 3,
 		},
 	}
 	require.NoError(t, DB.Create(invitees).Error)
@@ -70,18 +73,43 @@ func TestGetUserInviteesScopesIncludesDeletedAndPaginates(t *testing.T) {
 	assert.Equal(t, int64(3), total)
 	require.Len(t, pageOne, 2)
 	assert.Equal(t, invitees[2].Id, pageOne[0].Id)
-	assert.Equal(t, "Deleted Invitee", pageOne[0].DisplayName)
-	assert.Equal(t, int64(3000), pageOne[0].CreatedAt)
-	assert.Equal(t, 300, pageOne[0].UsedQuota)
-	assert.Equal(t, common.UserStatusEnabled, pageOne[0].Status)
-	assert.True(t, pageOne[0].Deleted)
-	assert.Equal(t, invitees[1].Id, pageOne[1].Id)
-	assert.False(t, pageOne[1].Deleted)
+	assert.Equal(t, "D***e", pageOne[0].DisplayName)
+	assert.Equal(t, startOfToday.Unix()+2, pageOne[0].CreatedAt)
+	assert.True(t, pageOne[0].IsNew)
+	assert.Equal(t, invitees[0].Id, pageOne[1].Id)
+	assert.Equal(t, "E***e", pageOne[1].DisplayName)
+	assert.True(t, pageOne[1].IsNew)
+	payload, err := common.Marshal(pageOne[0])
+	require.NoError(t, err)
+	assert.NotContains(t, string(payload), "used_quota")
+	assert.NotContains(t, string(payload), "status")
+	assert.NotContains(t, string(payload), "deleted")
 
 	pageTwo, total, err := GetUserInvitees(inviter.Id, &common.PageInfo{Page: 2, PageSize: 2})
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), total)
 	require.Len(t, pageTwo, 1)
-	assert.Equal(t, invitees[0].Id, pageTwo[0].Id)
-	assert.Equal(t, "Enabled Invitee", pageTwo[0].DisplayName)
+	assert.Equal(t, invitees[1].Id, pageTwo[0].Id)
+	assert.Equal(t, "D***e", pageTwo[0].DisplayName)
+	assert.False(t, pageTwo[0].IsNew)
+}
+
+func TestMaskInviteeDisplayName(t *testing.T) {
+	tests := []struct {
+		name        string
+		displayName string
+		want        string
+	}{
+		{name: "empty", displayName: "", want: "***"},
+		{name: "one rune", displayName: "A", want: "*"},
+		{name: "two unicode runes", displayName: "\u674e\u96f7", want: "\u674e*"},
+		{name: "multiple runes", displayName: "Alice", want: "A***e"},
+		{name: "trims whitespace", displayName: " Alice ", want: "A***e"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, maskInviteeDisplayName(test.displayName))
+		})
+	}
 }

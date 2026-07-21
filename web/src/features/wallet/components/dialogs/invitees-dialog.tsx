@@ -23,7 +23,7 @@ import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { EmptyState } from '@/components/empty-state'
-import { StatusBadge, type StatusVariant } from '@/components/status-badge'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import {
@@ -43,7 +43,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { formatQuota, formatTimestampToDate } from '@/lib/format'
+import { formatTimestampToDate } from '@/lib/format'
 
 import { getUserInvitees, isApiSuccess } from '../../api'
 
@@ -52,7 +52,6 @@ interface InviteesDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-const USER_STATUS_ENABLED = 1
 const SKELETON_ROW_IDS = [
   'invitee-skeleton-1',
   'invitee-skeleton-2',
@@ -128,13 +127,11 @@ export function InviteesDialog(props: InviteesDialogProps) {
 
       <div className='border-border/70 max-h-[min(54vh,520px)] overflow-y-auto rounded-md border'>
         {isLoading && (
-          <Table className='min-w-[620px]'>
+          <Table className='min-w-[420px]'>
             <TableHeader>
               <TableRow>
                 <TableHead>{t('Display Name')}</TableHead>
                 <TableHead>{t('Invited At')}</TableHead>
-                <TableHead>{t('Historical Usage')}</TableHead>
-                <TableHead>{t('Status')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -145,12 +142,6 @@ export function InviteesDialog(props: InviteesDialogProps) {
                   </TableCell>
                   <TableCell>
                     <Skeleton className='h-4 w-36' />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className='h-4 w-24' />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className='h-5 w-16' />
                   </TableCell>
                 </TableRow>
               ))}
@@ -176,48 +167,34 @@ export function InviteesDialog(props: InviteesDialogProps) {
           />
         )}
         {!isLoading && !isError && invitees.length > 0 && (
-          <Table className='min-w-[620px]'>
+          <Table className='min-w-[420px]'>
             <TableHeader>
               <TableRow>
                 <TableHead>{t('Display Name')}</TableHead>
                 <TableHead>{t('Invited At')}</TableHead>
-                <TableHead>{t('Historical Usage')}</TableHead>
-                <TableHead>{t('Status')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {invitees.map((invitee) => {
-                let statusLabel = t('Disabled')
-                let statusVariant: StatusVariant = 'neutral'
-                if (invitee.deleted) {
-                  statusLabel = t('Deactivated')
-                  statusVariant = 'danger'
-                } else if (invitee.status === USER_STATUS_ENABLED) {
-                  statusLabel = t('Normal')
-                  statusVariant = 'success'
-                }
-
-                return (
-                  <TableRow key={invitee.id}>
-                    <TableCell className='max-w-52 truncate font-medium'>
-                      {invitee.display_name}
-                    </TableCell>
-                    <TableCell className='text-muted-foreground'>
-                      {formatTimestampToDate(invitee.created_at)}
-                    </TableCell>
-                    <TableCell className='font-medium tabular-nums'>
-                      {formatQuota(invitee.used_quota)}
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge
-                        label={statusLabel}
-                        variant={statusVariant}
-                        copyable={false}
-                      />
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
+              {invitees.map((invitee) => (
+                <TableRow key={invitee.id}>
+                  <TableCell className='max-w-64 font-medium'>
+                    <div className='flex min-w-0 items-center gap-2'>
+                      <span className='truncate'>{invitee.display_name}</span>
+                      {invitee.is_new ? (
+                        <Badge
+                          variant='outline'
+                          className='h-4 border-emerald-200 bg-emerald-50 px-1.5 text-[10px] text-emerald-700 uppercase dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                        >
+                          {t('New')}
+                        </Badge>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                  <TableCell className='text-muted-foreground'>
+                    {formatTimestampToDate(invitee.created_at)}
+                  </TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         )}
