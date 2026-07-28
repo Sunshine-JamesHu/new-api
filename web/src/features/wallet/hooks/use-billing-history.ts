@@ -26,9 +26,10 @@ import {
   getUserBillingHistory,
   getAllBillingHistory,
   completeOrder,
+  updateTopUpInvoice,
   isApiSuccess,
 } from '../api'
-import type { TopupRecord } from '../types'
+import type { InvoiceStatusFilter, TopupRecord } from '../types'
 
 // ============================================================================
 // Billing History Hook
@@ -50,8 +51,11 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
   const [page, setPage] = useState(initialPage)
   const [pageSize, setPageSize] = useState(initialPageSize)
   const [keyword, setKeyword] = useState('')
+  const [userId, setUserId] = useState('')
+  const [invoiceStatus, setInvoiceStatus] = useState<InvoiceStatusFilter>('all')
   const [loading, setLoading] = useState(false)
   const [completing, setCompleting] = useState(false)
+  const [updatingInvoice, setUpdatingInvoice] = useState(false)
 
   /**
    * Fetch billing history
@@ -59,9 +63,17 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
   const fetchBillingHistory = useCallback(async () => {
     setLoading(true)
     try {
+      const parsedUserId = Number(userId)
+      const adminUserId = userId === '' ? undefined : parsedUserId
       const response = isAdmin
-        ? await getAllBillingHistory(page, pageSize, keyword)
-        : await getUserBillingHistory(page, pageSize, keyword)
+        ? await getAllBillingHistory(
+            page,
+            pageSize,
+            keyword,
+            invoiceStatus,
+            adminUserId
+          )
+        : await getUserBillingHistory(page, pageSize, keyword, invoiceStatus)
 
       if (isApiSuccess(response) && response.data) {
         setRecords(response.data.items || [])
@@ -82,7 +94,7 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
     } finally {
       setLoading(false)
     }
-  }, [isAdmin, page, pageSize, keyword])
+  }, [invoiceStatus, isAdmin, keyword, page, pageSize, userId])
 
   /**
    * Complete a pending order (admin only)
@@ -141,6 +153,59 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
     setPage(1) // Reset to first page when searching
   }, [])
 
+  const handleUserIdSearch = useCallback((newUserId: string) => {
+    setUserId(newUserId)
+    setPage(1)
+  }, [])
+
+  const handleInvoiceStatusChange = useCallback(
+    (newInvoiceStatus: InvoiceStatusFilter) => {
+      setInvoiceStatus(newInvoiceStatus)
+      setPage(1)
+    },
+    []
+  )
+
+  const handleUpdateInvoiceStatus = useCallback(
+    async (tradeNo: string, invoiceIssued: boolean) => {
+      if (!isAdmin) {
+        toast.error(i18next.t('Admin access required'))
+        return false
+      }
+
+      setUpdatingInvoice(true)
+      try {
+        const response = await updateTopUpInvoice({
+          trade_no: tradeNo,
+          invoice_issued: invoiceIssued,
+        })
+        if (isApiSuccess(response)) {
+          toast.success(
+            i18next.t(
+              invoiceIssued
+                ? 'Order marked as invoiced'
+                : 'Order marked as not invoiced'
+            )
+          )
+          await fetchBillingHistory()
+          return true
+        }
+        toast.error(
+          response.message || i18next.t('Failed to update invoice status')
+        )
+        return false
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to update invoice status:', error)
+        toast.error(i18next.t('Failed to update invoice status'))
+        return false
+      } finally {
+        setUpdatingInvoice(false)
+      }
+    },
+    [fetchBillingHistory, isAdmin]
+  )
+
   // Fetch data when dependencies change
   useEffect(() => {
     fetchBillingHistory()
@@ -152,13 +217,19 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
     page,
     pageSize,
     keyword,
+    userId,
+    invoiceStatus,
     loading,
     completing,
+    updatingInvoice,
     isAdmin,
     handlePageChange,
     handlePageSizeChange,
     handleSearch,
+    handleUserIdSearch,
+    handleInvoiceStatusChange,
     handleCompleteOrder,
+    handleUpdateInvoiceStatus,
     refresh: fetchBillingHistory,
   }
 }

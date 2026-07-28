@@ -307,6 +307,9 @@ func migrateDB() error {
 	if err != nil {
 		return err
 	}
+	if err := migrateTopUpInvoiceIssued(); err != nil {
+		return err
+	}
 	if err := InitializeUserAuthVersions(); err != nil {
 		return err
 	}
@@ -392,6 +395,9 @@ func migrateDBFast() error {
 			return err
 		}
 	}
+	if err := migrateTopUpInvoiceIssued(); err != nil {
+		return err
+	}
 	if err := InitializeUserAuthVersions(); err != nil {
 		return err
 	}
@@ -426,6 +432,12 @@ func migrateHappyHorseChannelType() error {
 		}
 	}
 	return nil
+}
+
+func migrateTopUpInvoiceIssued() error {
+	return DB.Model(&TopUp{}).
+		Where("invoice_issued IS NULL").
+		Update("invoice_issued", false).Error
 }
 
 func migrateLOGDB() error {

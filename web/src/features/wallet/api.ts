@@ -36,6 +36,8 @@ import type {
   InviteeHistoryResponse,
   BillingHistoryResponse,
   CompleteOrderRequest,
+  InvoiceStatusFilter,
+  UpdateTopUpInvoiceRequest,
   CreemPaymentRequest,
   CreemPaymentResponse,
   WaffoPaymentRequest,
@@ -262,7 +264,8 @@ export async function getUserInvitees(
 export async function getUserBillingHistory(
   page: number,
   pageSize: number,
-  keyword?: string
+  keyword?: string,
+  invoiceStatus: InvoiceStatusFilter = 'all'
 ): Promise<ApiResponse<BillingHistoryResponse>> {
   const params = new URLSearchParams({
     p: page.toString(),
@@ -270,6 +273,9 @@ export async function getUserBillingHistory(
   })
   if (keyword) {
     params.append('keyword', keyword)
+  }
+  if (invoiceStatus !== 'all') {
+    params.append('invoice_status', invoiceStatus)
   }
   const res = await api.get(`/api/user/topup/self?${params.toString()}`)
   return res.data
@@ -281,7 +287,9 @@ export async function getUserBillingHistory(
 export async function getAllBillingHistory(
   page: number,
   pageSize: number,
-  keyword?: string
+  keyword?: string,
+  invoiceStatus: InvoiceStatusFilter = 'all',
+  userId?: number
 ): Promise<ApiResponse<BillingHistoryResponse>> {
   const params = new URLSearchParams({
     p: page.toString(),
@@ -289,6 +297,12 @@ export async function getAllBillingHistory(
   })
   if (keyword) {
     params.append('keyword', keyword)
+  }
+  if (invoiceStatus !== 'all') {
+    params.append('invoice_status', invoiceStatus)
+  }
+  if (userId !== undefined) {
+    params.append('user_id', userId.toString())
   }
   const res = await api.get(`/api/user/topup?${params.toString()}`)
   return res.data
@@ -301,5 +315,15 @@ export async function completeOrder(
   request: CompleteOrderRequest
 ): Promise<ApiResponse> {
   const res = await api.post('/api/user/topup/complete', request)
+  return res.data
+}
+
+/**
+ * Update an order's invoice status (admin only)
+ */
+export async function updateTopUpInvoice(
+  request: UpdateTopUpInvoiceRequest
+): Promise<ApiResponse> {
+  const res = await api.post('/api/user/topup/invoice', request)
   return res.data
 }

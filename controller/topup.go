@@ -466,18 +466,18 @@ func RequestAmount(c *gin.Context) {
 func GetUserTopUps(c *gin.Context) {
 	userId := c.GetInt("id")
 	pageInfo := common.GetPageQuery(c)
-	keyword := c.Query("keyword")
+	filter, filterErr := parseTopUpFilter(c, false)
+	if filterErr != nil {
+		common.ApiErrorMsg(c, filterErr.Error())
+		return
+	}
 
 	var (
 		topups []*model.TopUp
 		total  int64
 		err    error
 	)
-	if keyword != "" {
-		topups, total, err = model.SearchUserTopUps(userId, keyword, pageInfo)
-	} else {
-		topups, total, err = model.GetUserTopUps(userId, pageInfo)
-	}
+	topups, total, err = model.GetUserTopUps(userId, filter, pageInfo)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -491,18 +491,18 @@ func GetUserTopUps(c *gin.Context) {
 // GetAllTopUps 管理员获取全平台充值记录
 func GetAllTopUps(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
-	keyword := c.Query("keyword")
+	filter, filterErr := parseTopUpFilter(c, true)
+	if filterErr != nil {
+		common.ApiErrorMsg(c, filterErr.Error())
+		return
+	}
 
 	var (
 		topups []*model.TopUp
 		total  int64
 		err    error
 	)
-	if keyword != "" {
-		topups, total, err = model.SearchAllTopUps(keyword, pageInfo)
-	} else {
-		topups, total, err = model.GetAllTopUps(pageInfo)
-	}
+	topups, total, err = model.GetAllTopUps(filter, pageInfo)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -515,6 +515,11 @@ func GetAllTopUps(c *gin.Context) {
 
 type AdminCompleteTopupRequest struct {
 	TradeNo string `json:"trade_no"`
+}
+
+type AdminUpdateTopUpInvoiceRequest struct {
+	TradeNo       string `json:"trade_no"`
+	InvoiceIssued *bool  `json:"invoice_issued"`
 }
 
 // AdminCompleteTopUp 管理员补单接口
@@ -534,4 +539,45 @@ func AdminCompleteTopUp(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, nil)
+}
+
+func AdminUpdateTopUpInvoice(c *gin.Context) {
+	var req AdminUpdateTopUpInvoiceRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.TradeNo == "" || req.InvoiceIssued == nil {
+		common.ApiErrorMsg(c, "invalid parameters")
+		return
+	}
+
+	if err := model.UpdateTopUpInvoiceIssued(req.TradeNo, *req.InvoiceIssued); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, nil)
+}
+
+func parseTopUpFilter(c *gin.Context, allowUserId bool) (model.TopUpFilter, error) {
+	filter := model.TopUpFilter{Keyword: c.Query("keyword")}
+
+	switch c.Query("invoice_status") {
+	case "", "all":
+	case "issued":
+		issued := true
+		filter.InvoiceIssued = &issued
+	case "unissued":
+		issued := false
+		filter.InvoiceIssued = &issued
+	default:
+		return model.TopUpFilter{}, fmt.Errorf("invalid invoice status")
+	}
+
+	if !allowUserId || c.Query("user_id") == "" {
+		return filter, nil
+	}
+
+	userId, err := strconv.Atoi(c.Query("user_id"))
+	if err != nil || userId <= 0 {
+		return model.TopUpFilter{}, fmt.Errorf("user ID must be a positive integer")
+	}
+	filter.UserId = &userId
+	return filter, nil
 }

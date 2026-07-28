@@ -16,8 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Search, Copy, Check, ChevronLeft, ChevronRight } from 'lucide-react'
-import { useState } from 'react'
+import {
+  Search,
+  Copy,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ReceiptText,
+  RotateCcw,
+} from 'lucide-react'
+import { type ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
@@ -71,25 +79,215 @@ export function BillingHistoryDialog({
     page,
     pageSize,
     keyword,
+    userId,
+    invoiceStatus,
     loading,
     completing,
+    updatingInvoice,
     isAdmin,
     handlePageChange,
     handlePageSizeChange,
     handleSearch,
+    handleUserIdSearch,
+    handleInvoiceStatusChange,
     handleCompleteOrder,
+    handleUpdateInvoiceStatus,
   } = useBillingHistory()
 
   const [confirmTradeNo, setConfirmTradeNo] = useState<string | null>(null)
+  const [confirmInvoice, setConfirmInvoice] = useState<{
+    tradeNo: string
+    invoiceIssued: boolean
+  } | null>(null)
   const { copyToClipboard, copiedText } = useCopyToClipboard({ notify: false })
 
   const totalPages = Math.ceil(total / pageSize)
+
+  let recordsContent: ReactNode
+  if (loading) {
+    recordsContent = (
+      <div className='space-y-3'>
+        {['first', 'second', 'third', 'fourth', 'fifth'].map((key) => (
+          <div key={key} className='rounded-lg border p-3 sm:p-4'>
+            <div className='flex items-start justify-between'>
+              <div className='flex-1 space-y-2'>
+                <Skeleton className='h-4 w-48' />
+                <Skeleton className='h-3 w-32' />
+              </div>
+              <Skeleton className='h-5 w-16' />
+            </div>
+            <div className='mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4'>
+              <Skeleton className='h-3 w-full' />
+              <Skeleton className='h-3 w-full' />
+              <Skeleton className='h-3 w-full' />
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  } else if (records.length === 0) {
+    recordsContent = (
+      <div className='text-muted-foreground flex min-h-40 flex-col items-center justify-center py-10 text-center'>
+        <p className='text-sm font-medium'>{t('No billing records found')}</p>
+        <p className='mt-1 text-xs'>
+          {keyword
+            ? t('Try adjusting your search')
+            : t('Your transaction history will appear here')}
+        </p>
+      </div>
+    )
+  } else {
+    recordsContent = (
+      <div className='space-y-3'>
+        {records.map((record) => {
+          const statusConfig = getStatusConfig(record.status)
+          const invoiceLabel = record.invoice_issued
+            ? t('Invoiced')
+            : t('Not invoiced')
+          const invoiceVariant = record.invoice_issued ? 'success' : 'neutral'
+          const canManageInvoice = isAdmin && record.status === 'success'
+          return (
+            <div key={record.id} className='rounded-lg border p-3 sm:p-4'>
+              <div className='flex items-start justify-between gap-2'>
+                <div className='flex-1 space-y-1'>
+                  <div className='flex min-w-0 items-center gap-2'>
+                    <code className='text-foreground truncate font-mono text-sm'>
+                      {record.trade_no}
+                    </code>
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      className='h-5 w-5 p-0'
+                      onClick={() => copyToClipboard(record.trade_no)}
+                    >
+                      {copiedText === record.trade_no ? (
+                        <Check className='h-3 w-3' />
+                      ) : (
+                        <Copy className='h-3 w-3' />
+                      )}
+                    </Button>
+                    {isAdmin && record.user_id != null && (
+                      <StatusBadge
+                        label={`${t('User ID')}: ${record.user_id}`}
+                        variant='neutral'
+                        size='sm'
+                        copyText={String(record.user_id)}
+                      />
+                    )}
+                  </div>
+                  <div className='text-muted-foreground text-xs'>
+                    {formatTimestamp(record.create_time)}
+                  </div>
+                </div>
+                <StatusBadge
+                  label={statusConfig.label}
+                  variant={statusConfig.variant}
+                  showDot
+                  copyable={false}
+                />
+              </div>
+
+              <div className='mt-3 grid grid-cols-2 gap-3 sm:mt-4 sm:grid-cols-4 sm:gap-4'>
+                <div className='space-y-1'>
+                  <Label className='text-muted-foreground text-xs'>
+                    {t('Payment Method')}
+                  </Label>
+                  <div className='text-sm font-medium'>
+                    {getPaymentMethodName(record.payment_method, t)}
+                  </div>
+                </div>
+                <div className='space-y-1'>
+                  <Label className='text-muted-foreground text-xs'>
+                    {t('Amount')}
+                  </Label>
+                  <div className='text-sm font-semibold'>
+                    {formatCurrencyFromUSD(record.amount, {
+                      digitsLarge: 2,
+                      digitsSmall: 2,
+                      abbreviate: false,
+                    })}
+                  </div>
+                </div>
+                <div className='space-y-1'>
+                  <Label className='text-muted-foreground text-xs'>
+                    {t('Payment')}
+                  </Label>
+                  <div className='text-sm font-semibold text-red-600'>
+                    {formatNumber(record.money)}
+                  </div>
+                </div>
+                <div className='space-y-1'>
+                  <Label className='text-muted-foreground text-xs'>
+                    {t('Invoice status')}
+                  </Label>
+                  {canManageInvoice ? (
+                    <Button
+                      size='sm'
+                      variant={record.invoice_issued ? 'ghost' : 'default'}
+                      onClick={() =>
+                        setConfirmInvoice({
+                          tradeNo: record.trade_no,
+                          invoiceIssued: !record.invoice_issued,
+                        })
+                      }
+                      disabled={updatingInvoice}
+                    >
+                      {record.invoice_issued ? (
+                        <RotateCcw data-icon='inline-start' />
+                      ) : (
+                        <ReceiptText data-icon='inline-start' />
+                      )}
+                      {record.invoice_issued
+                        ? t('Undo invoice mark')
+                        : t('Issue invoice')}
+                    </Button>
+                  ) : (
+                    <StatusBadge
+                      label={invoiceLabel}
+                      variant={invoiceVariant}
+                      showDot
+                      copyable={false}
+                    />
+                  )}
+                </div>
+              </div>
+
+              {isAdmin && record.status === 'pending' && (
+                <div className='mt-4 flex justify-end'>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    onClick={() => setConfirmTradeNo(record.trade_no)}
+                    disabled={completing}
+                  >
+                    {t('Complete Order')}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
 
   const handleConfirmComplete = async () => {
     if (confirmTradeNo) {
       const success = await handleCompleteOrder(confirmTradeNo)
       if (success) {
         setConfirmTradeNo(null)
+      }
+    }
+  }
+
+  const handleConfirmInvoice = async () => {
+    if (confirmInvoice) {
+      const success = await handleUpdateInvoiceStatus(
+        confirmInvoice.tradeNo,
+        confirmInvoice.invoiceIssued
+      )
+      if (success) {
+        setConfirmInvoice(null)
       }
     }
   }
@@ -109,7 +307,7 @@ export function BillingHistoryDialog({
       >
         <div className='min-h-0 space-y-3'>
           {/* Search and Filter Bar */}
-          <div className='flex items-center gap-2'>
+          <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
             <div className='relative flex-1'>
               <Search className='text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
               <Input
@@ -119,6 +317,46 @@ export function BillingHistoryDialog({
                 className='h-9 pl-10'
               />
             </div>
+            {isAdmin && (
+              <Input
+                type='number'
+                min={1}
+                inputMode='numeric'
+                aria-label={t('Search by user ID...')}
+                placeholder={t('Search by user ID...')}
+                value={userId}
+                onChange={(e) => handleUserIdSearch(e.target.value)}
+                className='h-9 sm:w-40'
+              />
+            )}
+            <Select
+              items={[
+                { value: 'all', label: t('All invoices') },
+                { value: 'issued', label: t('Invoiced') },
+                { value: 'unissued', label: t('Not invoiced') },
+              ]}
+              value={invoiceStatus}
+              onValueChange={(value) => {
+                if (
+                  value === 'all' ||
+                  value === 'issued' ||
+                  value === 'unissued'
+                ) {
+                  handleInvoiceStatusChange(value)
+                }
+              }}
+            >
+              <SelectTrigger className='h-9 w-full sm:w-36'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  <SelectItem value='all'>{t('All invoices')}</SelectItem>
+                  <SelectItem value='issued'>{t('Invoiced')}</SelectItem>
+                  <SelectItem value='unissued'>{t('Not invoiced')}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
             <Select
               items={[
                 { value: '10', label: t('10 / page') },
@@ -128,7 +366,7 @@ export function BillingHistoryDialog({
               ]}
               value={pageSize.toString()}
               onValueChange={(value) =>
-                value !== null && handlePageSizeChange(parseInt(value))
+                value !== null && handlePageSizeChange(Number.parseInt(value))
               }
             >
               <SelectTrigger className='h-9 w-[92px] sm:w-32'>
@@ -147,135 +385,7 @@ export function BillingHistoryDialog({
 
           {/* Records List */}
           <div className='max-h-[min(54vh,520px)] overflow-y-auto pr-1'>
-            {loading ? (
-              <div className='space-y-3'>
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className='rounded-lg border p-3 sm:p-4'>
-                    <div className='flex items-start justify-between'>
-                      <div className='flex-1 space-y-2'>
-                        <Skeleton className='h-4 w-48' />
-                        <Skeleton className='h-3 w-32' />
-                      </div>
-                      <Skeleton className='h-5 w-16' />
-                    </div>
-                    <div className='mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4'>
-                      <Skeleton className='h-3 w-full' />
-                      <Skeleton className='h-3 w-full' />
-                      <Skeleton className='h-3 w-full' />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : records.length === 0 ? (
-              <div className='text-muted-foreground flex min-h-40 flex-col items-center justify-center py-10 text-center'>
-                <p className='text-sm font-medium'>
-                  {t('No billing records found')}
-                </p>
-                <p className='mt-1 text-xs'>
-                  {keyword
-                    ? t('Try adjusting your search')
-                    : t('Your transaction history will appear here')}
-                </p>
-              </div>
-            ) : (
-              <div className='space-y-3'>
-                {records.map((record) => {
-                  const statusConfig = getStatusConfig(record.status)
-                  return (
-                    <div
-                      key={record.id}
-                      className='rounded-lg border p-3 sm:p-4'
-                    >
-                      {/* Header Row */}
-                      <div className='flex items-start justify-between gap-2'>
-                        <div className='flex-1 space-y-1'>
-                          <div className='flex min-w-0 items-center gap-2'>
-                            <code className='text-foreground truncate font-mono text-sm'>
-                              {record.trade_no}
-                            </code>
-                            <Button
-                              variant='ghost'
-                              size='sm'
-                              className='h-5 w-5 p-0'
-                              onClick={() => copyToClipboard(record.trade_no)}
-                            >
-                              {copiedText === record.trade_no ? (
-                                <Check className='h-3 w-3' />
-                              ) : (
-                                <Copy className='h-3 w-3' />
-                              )}
-                            </Button>
-                            {isAdmin && record.user_id != null && (
-                              <StatusBadge
-                                label={`${t('User ID')}: ${record.user_id}`}
-                                variant='neutral'
-                                size='sm'
-                                copyText={String(record.user_id)}
-                              />
-                            )}
-                          </div>
-                          <div className='text-muted-foreground text-xs'>
-                            {formatTimestamp(record.create_time)}
-                          </div>
-                        </div>
-                        <StatusBadge
-                          label={statusConfig.label}
-                          variant={statusConfig.variant}
-                          showDot
-                          copyable={false}
-                        />
-                      </div>
-
-                      {/* Details Grid */}
-                      <div className='mt-3 grid grid-cols-2 gap-3 sm:mt-4 sm:grid-cols-3 sm:gap-4'>
-                        <div className='space-y-1'>
-                          <Label className='text-muted-foreground text-xs'>
-                            {t('Payment Method')}
-                          </Label>
-                          <div className='text-sm font-medium'>
-                            {getPaymentMethodName(record.payment_method, t)}
-                          </div>
-                        </div>
-                        <div className='space-y-1'>
-                          <Label className='text-muted-foreground text-xs'>
-                            {t('Amount')}
-                          </Label>
-                          <div className='text-sm font-semibold'>
-                            {formatCurrencyFromUSD(record.amount, {
-                              digitsLarge: 2,
-                              digitsSmall: 2,
-                              abbreviate: false,
-                            })}
-                          </div>
-                        </div>
-                        <div className='space-y-1'>
-                          <Label className='text-muted-foreground text-xs'>
-                            {t('Payment')}
-                          </Label>
-                          <div className='text-sm font-semibold text-red-600'>
-                            {formatNumber(record.money)}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Admin Actions */}
-                      {isAdmin && record.status === 'pending' && (
-                        <div className='mt-4 flex justify-end'>
-                          <Button
-                            size='sm'
-                            variant='outline'
-                            onClick={() => setConfirmTradeNo(record.trade_no)}
-                            disabled={completing}
-                          >
-                            {t('Complete Order')}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
+            {recordsContent}
           </div>
 
           {/* Pagination */}
@@ -338,6 +448,35 @@ export function BillingHistoryDialog({
               disabled={completing}
             >
               {completing ? t('Processing...') : t('Confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={confirmInvoice !== null}
+        onOpenChange={(open) => !open && setConfirmInvoice(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('Update invoice status')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmInvoice?.invoiceIssued
+                ? t('Are you sure you want to mark this order as invoiced?')
+                : t(
+                    'Are you sure you want to mark this order as not invoiced?'
+                  )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={updatingInvoice}>
+              {t('Cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmInvoice}
+              disabled={updatingInvoice}
+            >
+              {updatingInvoice ? t('Processing...') : t('Confirm')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
