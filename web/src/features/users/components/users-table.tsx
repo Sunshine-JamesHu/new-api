@@ -257,6 +257,7 @@ export function UsersTable() {
           <DataTableToolbar
             table={table}
             searchPlaceholder={t('Filter by username, name or email...')}
+            searchDebounceMs={500}
             filters={[
               {
                 columnId: 'status',
