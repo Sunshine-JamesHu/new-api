@@ -9,11 +9,12 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
+	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/gin-gonic/gin"
@@ -31,7 +32,7 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	a.apiKey = info.ApiKey
 }
 
-func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskError {
+func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) *taskdto.TaskError {
 	if taskErr := relaycommon.ValidateMetadataPassthroughTaskRequest(c, info, constant.TaskActionTextGenerate); taskErr != nil {
 		return taskErr
 	}
@@ -107,7 +108,7 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 	return channel.DoTaskApiRequest(a, c, info, requestBody)
 }
 
-func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, taskErr *dto.TaskError) {
+func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, taskErr *taskdto.TaskError) {
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", nil, service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
@@ -130,7 +131,7 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		return "", nil, service.TaskErrorWrapper(err, "marshal_task_data_failed", http.StatusInternalServerError)
 	}
 
-	c.JSON(http.StatusOK, dto.TaskResponse[any]{
+	c.JSON(http.StatusOK, taskdto.TaskResponse[any]{
 		Code: "success",
 		Data: relayTaskToResponse(task),
 	})
@@ -183,15 +184,15 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 }
 
 func parseNewApiTask(body []byte) (*model.Task, error) {
-	var wrappedDto dto.TaskResponse[dto.TaskDto]
+	var wrappedDto taskdto.TaskResponse[taskdto.TaskDto]
 	if err := common.Unmarshal(body, &wrappedDto); err == nil && wrappedDto.IsSuccess() && validTaskDto(wrappedDto.Data) {
 		return taskDtoToModelTask(wrappedDto.Data), nil
 	}
-	var wrapped dto.TaskResponse[model.Task]
+	var wrapped taskdto.TaskResponse[model.Task]
 	if err := common.Unmarshal(body, &wrapped); err == nil && wrapped.IsSuccess() && validModelTask(&wrapped.Data) {
 		return &wrapped.Data, nil
 	}
-	var wrappedVideo dto.TaskResponse[dto.OpenAIVideo]
+	var wrappedVideo taskdto.TaskResponse[dto.OpenAIVideo]
 	if err := common.Unmarshal(body, &wrappedVideo); err == nil && wrappedVideo.IsSuccess() && validOpenAIVideo(wrappedVideo.Data) {
 		return openAIVideoToModelTask(wrappedVideo.Data), nil
 	}
@@ -206,7 +207,7 @@ func parseNewApiTask(body []byte) (*model.Task, error) {
 	return nil, errors.New("unmarshal newapi task failed")
 }
 
-func validTaskDto(taskDto dto.TaskDto) bool {
+func validTaskDto(taskDto taskdto.TaskDto) bool {
 	return strings.TrimSpace(taskDto.TaskID) != "" && validInternalTaskStatus(taskDto.Status)
 }
 
@@ -258,7 +259,7 @@ func openAIVideoToModelTask(video dto.OpenAIVideo) *model.Task {
 	return task
 }
 
-func taskDtoToModelTask(taskDto dto.TaskDto) *model.Task {
+func taskDtoToModelTask(taskDto taskdto.TaskDto) *model.Task {
 	task := &model.Task{
 		ID:         taskDto.ID,
 		CreatedAt:  taskDto.CreatedAt,

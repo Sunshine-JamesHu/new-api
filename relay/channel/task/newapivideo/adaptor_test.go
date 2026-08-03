@@ -9,9 +9,10 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
+	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/gin-gonic/gin"
@@ -59,7 +60,7 @@ func TestNewApiVideoSubmitUsesVideoGenerationsEndpoint(t *testing.T) {
 		gotPath = r.URL.Path
 		require.Equal(t, http.MethodPost, r.Method)
 		require.Equal(t, "Bearer sk-newapi", r.Header.Get("Authorization"))
-		data, err := common.Marshal(dto.TaskResponse[any]{
+		data, err := common.Marshal(taskdto.TaskResponse[any]{
 			Code: "success",
 			Data: map[string]any{
 				"task_id":  "task_upstream",
@@ -189,7 +190,7 @@ func TestNewApiVideoFetchTaskParsesTaskDtoResultURL(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/v1/video/generations/task_upstream", r.URL.Path)
 		require.Equal(t, http.MethodGet, r.Method)
-		data, err := common.Marshal(dto.TaskResponse[any]{
+		data, err := common.Marshal(taskdto.TaskResponse[any]{
 			Code: "success",
 			Data: map[string]any{
 				"task_id":    "task_upstream",
@@ -218,7 +219,7 @@ func TestNewApiVideoFetchTaskParsesTaskDtoResultURL(t *testing.T) {
 }
 
 func TestParseNewApiTaskWrappedOpenAIVideoDoesNotMatchTaskDto(t *testing.T) {
-	body, err := common.Marshal(dto.TaskResponse[dto.OpenAIVideo]{
+	body, err := common.Marshal(taskdto.TaskResponse[dto.OpenAIVideo]{
 		Code: "success",
 		Data: dto.OpenAIVideo{
 			ID:        "video_upstream",
