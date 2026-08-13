@@ -20,6 +20,7 @@ import { RateLimitSection } from '../request-limits/rate-limit-section'
 import { SensitiveWordsSection } from '../request-limits/sensitive-words-section'
 import { SSRFSection } from '../request-limits/ssrf-section'
 import { TokenLimitSection } from '../request-limits/token-limit-section'
+import { ViolationBanSection } from '../request-limits/violation-ban-section'
 import type { SecuritySettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 
@@ -86,6 +87,20 @@ const SECURITY_SECTIONS = [
         defaultValues={{
           'token_setting.max_user_tokens':
             settings['token_setting.max_user_tokens'],
+        }}
+      />
+    ),
+  },
+  {
+    id: 'violation-ban',
+    titleKey: 'Violation Ban',
+    build: (settings: SecuritySettings) => (
+      <ViolationBanSection
+        defaultValues={{
+          UserViolationBanEnabled: settings.UserViolationBanEnabled,
+          UserViolationBanRules: settings.UserViolationBanRules,
+          UserViolationBanThreshold: settings.UserViolationBanThreshold,
+          UserViolationBanWindowHours: settings.UserViolationBanWindowHours,
         }}
       />
     ),

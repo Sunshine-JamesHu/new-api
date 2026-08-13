@@ -178,6 +178,11 @@ func InitOptionMap() {
 	common.OptionMap["CheckSensitiveOnPromptEnabled"] = strconv.FormatBool(setting.CheckSensitiveOnPromptEnabled)
 	common.OptionMap["StopOnSensitiveEnabled"] = strconv.FormatBool(setting.StopOnSensitiveEnabled)
 	common.OptionMap["SensitiveWords"] = setting.SensitiveWordsToString()
+	violationBanConfig := setting.GetUserViolationBanConfig()
+	common.OptionMap["UserViolationBanEnabled"] = strconv.FormatBool(violationBanConfig.Enabled)
+	common.OptionMap["UserViolationBanRules"] = setting.UserViolationBanRulesToJSONString()
+	common.OptionMap["UserViolationBanThreshold"] = setting.UserViolationBanThresholdString()
+	common.OptionMap["UserViolationBanWindowHours"] = setting.UserViolationBanWindowHoursString()
 	common.OptionMap["StreamCacheQueueLength"] = strconv.Itoa(setting.StreamCacheQueueLength)
 	common.OptionMap["AutomaticDisableKeywords"] = operation_setting.AutomaticDisableKeywordsToString()
 	common.OptionMap["AutomaticDisableStatusCodes"] = operation_setting.AutomaticDisableStatusCodesToString()
@@ -213,6 +218,16 @@ func SyncOptions(frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	switch key {
+	case "UserViolationBanEnabled":
+		return setting.ValidateUserViolationBanEnabled(value)
+	case "UserViolationBanRules":
+		return setting.ValidateUserViolationBanRulesJSON(value)
+	case "UserViolationBanThreshold":
+		return setting.ValidateUserViolationBanThreshold(value)
+	case "UserViolationBanWindowHours":
+		return setting.ValidateUserViolationBanWindowHours(value)
+	}
 	if key == operation_setting.ToolPriceOptionKey {
 		return operation_setting.ValidateToolPricesJSON(value)
 	}
@@ -382,6 +397,8 @@ func updateOptionMap(key string, value string) (err error) {
 			setting.ModelRequestRateLimitEnabled = boolValue
 		case "StopOnSensitiveEnabled":
 			setting.StopOnSensitiveEnabled = boolValue
+		case "UserViolationBanEnabled":
+			err = setting.UpdateUserViolationBanEnabled(value)
 		case "SMTPSSLEnabled":
 			common.SMTPSSLEnabled = boolValue
 		case "SMTPStartTLSEnabled":
@@ -602,6 +619,12 @@ func updateOptionMap(key string, value string) (err error) {
 		common.QuotaPerUnit, _ = strconv.ParseFloat(value, 64)
 	case "SensitiveWords":
 		setting.SensitiveWordsFromString(value)
+	case "UserViolationBanRules":
+		err = setting.UpdateUserViolationBanRulesByJSONString(value)
+	case "UserViolationBanThreshold":
+		err = setting.UpdateUserViolationBanThreshold(value)
+	case "UserViolationBanWindowHours":
+		err = setting.UpdateUserViolationBanWindowHours(value)
 	case "AutomaticDisableKeywords":
 		operation_setting.AutomaticDisableKeywordsFromString(value)
 	case "AutomaticDisableStatusCodes":

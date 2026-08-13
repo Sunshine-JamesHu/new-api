@@ -88,14 +88,16 @@ const (
 )
 
 type NewAPIError struct {
-	Err            error
-	RelayError     any
-	skipRetry      bool
-	recordErrorLog *bool
-	errorType      ErrorType
-	errorCode      ErrorCode
-	StatusCode     int
-	Metadata       json.RawMessage
+	Err                error
+	RelayError         any
+	skipRetry          bool
+	recordErrorLog     *bool
+	errorType          ErrorType
+	errorCode          ErrorCode
+	StatusCode         int
+	Metadata           json.RawMessage
+	responseBody       string
+	responseStatusCode int
 }
 
 // Unwrap enables errors.Is / errors.As to work with NewAPIError by exposing the underlying error.
@@ -175,6 +177,44 @@ func (e *NewAPIError) MaskSensitiveErrorWithStatusCode() string {
 
 func (e *NewAPIError) SetMessage(message string) {
 	e.Err = errors.New(message)
+}
+
+// ResponseBody returns the captured upstream response body used by internal
+// policy checks. It is intentionally unexported from JSON serialization.
+func (e *NewAPIError) ResponseBody() string {
+	if e == nil {
+		return ""
+	}
+	return e.responseBody
+}
+
+// SetResponseBody stores an upstream response body for internal policy checks.
+func (e *NewAPIError) SetResponseBody(body string) {
+	if e == nil {
+		return
+	}
+	e.responseBody = body
+}
+
+// ResponseStatusCode returns the original upstream HTTP status code when one
+// was captured. It falls back to StatusCode for errors without an HTTP response.
+func (e *NewAPIError) ResponseStatusCode() int {
+	if e == nil {
+		return 0
+	}
+	if e.responseStatusCode != 0 {
+		return e.responseStatusCode
+	}
+	return e.StatusCode
+}
+
+// SetResponseStatusCode stores the original upstream HTTP status code before
+// any channel status-code mapping is applied.
+func (e *NewAPIError) SetResponseStatusCode(statusCode int) {
+	if e == nil {
+		return
+	}
+	e.responseStatusCode = statusCode
 }
 
 func (e *NewAPIError) ToOpenAIError() OpenAIError {

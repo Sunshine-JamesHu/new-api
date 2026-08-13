@@ -64,6 +64,19 @@ func TestResetStatusCode(t *testing.T) {
 	}
 }
 
+func TestResetStatusCodePreservesOriginalUpstreamStatusCode(t *testing.T) {
+	resp := &http.Response{
+		StatusCode: http.StatusForbidden,
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"provider blocked"}}`)),
+	}
+
+	newAPIError := RelayErrorHandler(context.Background(), resp, false)
+	ResetStatusCode(newAPIError, `{"403":502}`)
+
+	require.Equal(t, http.StatusBadGateway, newAPIError.StatusCode)
+	require.Equal(t, http.StatusForbidden, newAPIError.ResponseStatusCode())
+}
+
 func TestRelayErrorHandlerTruncatesInvalidJSONBodyInLog(t *testing.T) {
 	withDebugEnabled(t, false)
 
@@ -120,6 +133,30 @@ func TestRelayErrorHandlerKeepsOpenAIErrorMessage(t *testing.T) {
 
 	require.NotNil(t, newAPIError)
 	require.Equal(t, message, newAPIError.Error())
+}
+
+func TestRelayErrorHandlerCapturesResponseBodyForPolicyChecks(t *testing.T) {
+	body := `{"error":{"message":"provider blocked"}}`
+	resp := &http.Response{
+		StatusCode: http.StatusBadGateway,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+
+	newAPIError := RelayErrorHandler(context.Background(), resp, false)
+
+	require.Equal(t, body, newAPIError.ResponseBody())
+}
+
+func TestRelayErrorHandlerBoundsCapturedResponseBodyForPolicyChecks(t *testing.T) {
+	body := strings.Repeat("p", relayErrorResponseBodyLimit+1)
+	resp := &http.Response{
+		StatusCode: http.StatusBadGateway,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+
+	newAPIError := RelayErrorHandler(context.Background(), resp, false)
+
+	require.Len(t, newAPIError.ResponseBody(), relayErrorResponseBodyLimit)
 }
 
 func TestRelayErrorHandlerKeepsInvalidJSONBodyInDebugLog(t *testing.T) {
