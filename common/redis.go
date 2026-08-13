@@ -272,6 +272,37 @@ func RedisIncr(key string, delta int64) error {
 	return nil
 }
 
+// RedisIncrWithSlidingExpiration atomically increments a counter and refreshes
+// its expiration. The expiration is therefore measured from the most recent
+// increment rather than from the first one.
+func RedisIncrWithSlidingExpiration(key string, expiration time.Duration) (int64, error) {
+	if !RedisEnabled || RDB == nil {
+		return 0, errors.New("redis is not enabled")
+	}
+	if key == "" || expiration <= 0 {
+		return 0, errors.New("invalid redis sliding counter arguments")
+	}
+
+	seconds := int64(expiration / time.Second)
+	if seconds <= 0 {
+		return 0, errors.New("redis sliding counter expiration is less than one second")
+	}
+	if DebugEnabled {
+		SysLog(fmt.Sprintf("Redis INCR with sliding expiration: key=%s, expiration=%ds", key, seconds))
+	}
+
+	const script = `
+local count = redis.call('INCR', KEYS[1])
+redis.call('EXPIRE', KEYS[1], ARGV[1])
+return count`
+
+	count, err := RDB.Eval(context.Background(), script, []string{key}, seconds).Int64()
+	if err != nil {
+		return 0, fmt.Errorf("failed to increment redis sliding counter: %w", err)
+	}
+	return count, nil
+}
+
 func RedisHIncrBy(key, field string, delta int64) error {
 	if DebugEnabled {
 		SysLog(fmt.Sprintf("Redis HINCRBY: key=%s, field=%s, delta=%d", key, field, delta))
