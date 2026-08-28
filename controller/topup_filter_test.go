@@ -4,6 +4,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,4 +56,12 @@ func TestParseTopUpFilterRejectsInvalidInvoiceStatus(t *testing.T) {
 	)
 
 	require.Error(t, err)
+}
+
+func TestParseTopUpFilterAcceptsIssuingInvoiceStatus(t *testing.T) {
+	c := newTopUpFilterContext(t, "invoice_status=issuing")
+	filter, err := parseTopUpFilter(c, false)
+	require.NoError(t, err)
+	assert.Equal(t, model.InvoiceStatusIssuing, filter.InvoiceStatus)
+	assert.Nil(t, filter.InvoiceIssued)
 }

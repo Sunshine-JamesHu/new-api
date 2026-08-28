@@ -321,6 +321,9 @@ func migrateDB() error {
 		&Log{},
 		&Midjourney{},
 		&TopUp{},
+		&InvoiceTitle{},
+		&InvoiceApplication{},
+		&InvoiceApplicationOrder{},
 		&AffiliateRebate{},
 		&QuotaData{},
 		&Task{},
@@ -391,6 +394,9 @@ func migrateDBFast() error {
 		{&Log{}, "Log"},
 		{&Midjourney{}, "Midjourney"},
 		{&TopUp{}, "TopUp"},
+		{&InvoiceTitle{}, "InvoiceTitle"},
+		{&InvoiceApplication{}, "InvoiceApplication"},
+		{&InvoiceApplicationOrder{}, "InvoiceApplicationOrder"},
 		{&AffiliateRebate{}, "AffiliateRebate"},
 		{&QuotaData{}, "QuotaData"},
 		{&Task{}, "Task"},
@@ -474,9 +480,23 @@ func migrateHappyHorseChannelType() error {
 }
 
 func migrateTopUpInvoiceIssued() error {
-	return DB.Model(&TopUp{}).
-		Where("invoice_issued IS NULL").
-		Update("invoice_issued", false).Error
+	if err := DB.Model(&TopUp{}).Where("invoice_issued IS NULL").Update("invoice_issued", false).Error; err != nil {
+		return err
+	}
+	var topUps []TopUp
+	if err := DB.Where("invoice_status IS NULL OR invoice_status = ?", "").Find(&topUps).Error; err != nil {
+		return err
+	}
+	for _, topUp := range topUps {
+		status := InvoiceStatusUnissued
+		if topUp.InvoiceIssued {
+			status = InvoiceStatusIssued
+		}
+		if err := DB.Model(&TopUp{}).Where("id = ?", topUp.Id).Update("invoice_status", status).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func migrateLOGDB() error {

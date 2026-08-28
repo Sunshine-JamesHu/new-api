@@ -55,6 +55,9 @@ func TestMain(m *testing.M) {
 		&model.Channel{},
 		&model.Midjourney{},
 		&model.TopUp{},
+		&model.InvoiceTitle{},
+		&model.InvoiceApplication{},
+		&model.InvoiceApplicationOrder{},
 		&model.AffiliateRebate{},
 		&model.UserSubscription{},
 		&model.SystemTask{},
@@ -76,7 +79,7 @@ func truncate(t *testing.T) {
 	require.NoError(t, model.DB.Exec("DELETE FROM users").Error)
 	require.NoError(t, model.DB.Exec("DELETE FROM tokens").Error)
 	require.NoError(t, model.DB.Exec("DELETE FROM logs").Error)
-		require.NoError(t, model.DB.Exec("DELETE FROM channels").Error)
+	require.NoError(t, model.DB.Exec("DELETE FROM channels").Error)
 	require.NoError(t, model.DB.Exec("DELETE FROM midjourneys").Error)
 	require.NoError(t, model.DB.Exec("DELETE FROM top_ups").Error)
 	require.NoError(t, model.DB.Exec("DELETE FROM affiliate_rebates").Error)

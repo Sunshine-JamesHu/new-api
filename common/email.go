@@ -1,13 +1,19 @@
 package common
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+	"mime"
+	"mime/multipart"
 	"net/smtp"
+	"net/textproto"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 )
 
 func generateMessageID() (string, error) {
@@ -76,6 +82,84 @@ func newSMTPClient(addr string) (*smtp.Client, error) {
 }
 
 func SendEmail(subject string, receiver string, content string) error {
+	return sendEmailMessage(subject, receiver, []byte(fmt.Sprintf("Content-Type: text/html; charset=UTF-8\r\n\r\n%s\r\n", content)))
+}
+
+// SendEmailWithAttachment sends an HTML email with one attachment using the
+// same SMTP settings as SendEmail. The payload is kept in memory so callers
+// can remove temporary upload files immediately after this function returns.
+func SendEmailWithAttachment(subject, receiver, content, fileName, contentType string, attachment []byte) error {
+	fileName = sanitizeAttachmentFilename(fileName)
+	if fileName == "" || len(attachment) == 0 {
+		return fmt.Errorf("email attachment is required")
+	}
+	if strings.ContainsAny(contentType, "\r\n") {
+		return fmt.Errorf("invalid email attachment metadata")
+	}
+	if strings.TrimSpace(contentType) == "" {
+		contentType = "application/octet-stream"
+	}
+	boundary := "new-api-invoice-" + GetRandomString(20)
+	var body bytes.Buffer
+	body.WriteString("MIME-Version: 1.0\r\n")
+	body.WriteString("Content-Type: multipart/mixed; boundary=\"" + boundary + "\"\r\n\r\n")
+	writer := multipart.NewWriter(&body)
+	if err := writer.SetBoundary(boundary); err != nil {
+		return err
+	}
+	textHeader := make(textproto.MIMEHeader)
+	textHeader.Set("Content-Type", "text/html; charset=UTF-8")
+	part, err := writer.CreatePart(textHeader)
+	if err != nil {
+		return err
+	}
+	if _, err = part.Write([]byte(content)); err != nil {
+		return err
+	}
+	attachmentHeader := make(textproto.MIMEHeader)
+	attachmentHeader.Set("Content-Type", mime.FormatMediaType(contentType, map[string]string{"name": fileName}))
+	attachmentHeader.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": fileName}))
+	attachmentHeader.Set("Content-Transfer-Encoding", "base64")
+	part, err = writer.CreatePart(attachmentHeader)
+	if err != nil {
+		return err
+	}
+	encoded := make([]byte, base64.StdEncoding.EncodedLen(len(attachment)))
+	base64.StdEncoding.Encode(encoded, attachment)
+	for start := 0; start < len(encoded); start += 76 {
+		end := start + 76
+		if end > len(encoded) {
+			end = len(encoded)
+		}
+		if _, err = part.Write(encoded[start:end]); err != nil {
+			return err
+		}
+		if _, err = part.Write([]byte("\r\n")); err != nil {
+			return err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	return sendEmailMessage(subject, receiver, body.Bytes())
+}
+
+func sanitizeAttachmentFilename(name string) string {
+	name = strings.ReplaceAll(name, "\\", "/")
+	name = filepath.Base(name)
+	name = strings.Map(func(r rune) rune {
+		if r == '"' || r == '\\' || unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, name)
+	return strings.TrimSpace(name)
+}
+
+func sendEmailMessage(subject, receiver string, body []byte) error {
+	if strings.ContainsAny(receiver, "\r\n") {
+		return fmt.Errorf("invalid email receiver")
+	}
 	if SMTPFrom == "" { // for compatibility
 		SMTPFrom = SMTPAccount
 	}
@@ -92,8 +176,8 @@ func SendEmail(subject string, receiver string, content string) error {
 		"Subject: %s\r\n"+
 		"Date: %s\r\n"+
 		"Message-ID: %s\r\n"+ // 添加 Message-ID 头
-		"Content-Type: text/html; charset=UTF-8\r\n\r\n%s\r\n",
-		receiver, SystemName, SMTPFrom, encodedSubject, time.Now().Format(time.RFC1123Z), id, content))
+		"%s\r\n",
+		receiver, SystemName, SMTPFrom, encodedSubject, time.Now().Format(time.RFC1123Z), id, body))
 	auth := getSMTPAuth()
 	addr := fmt.Sprintf("%s:%d", SMTPServer, SMTPPort)
 	to := strings.Split(receiver, ";")

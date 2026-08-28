@@ -293,7 +293,7 @@ export interface InviteeHistoryResponse {
  * Topup record status
  */
 export type TopupStatus = 'success' | 'pending' | 'expired'
-export type InvoiceStatusFilter = 'all' | 'issued' | 'unissued'
+export type InvoiceStatusFilter = 'all' | 'issued' | 'unissued' | 'issuing'
 
 /**
  * Topup billing record
@@ -319,6 +319,7 @@ export interface TopupRecord {
   status: TopupStatus
   /** Whether an invoice has been issued */
   invoice_issued: boolean
+  invoice_status?: 'unissued' | 'issuing' | 'issued'
 }
 
 /**

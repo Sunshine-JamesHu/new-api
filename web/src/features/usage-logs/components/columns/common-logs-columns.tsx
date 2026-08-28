@@ -100,11 +100,6 @@ function getGroupRatioText(other: LogOtherData | null): string | null {
   return ratio == null ? null : `${formatRatioCompact(ratio)}x`
 }
 
-function splitQuotaDisplay(value: string): { prefix: string; amount: string } {
-  const match = value.match(/^([^0-9+\-.,\s]+)(.+)$/)
-  if (!match) return { prefix: '', amount: value }
-  return { prefix: match[1], amount: match[2] }
-}
 function buildDetailSegments(
   log: UsageLog,
   other: LogOtherData | null,

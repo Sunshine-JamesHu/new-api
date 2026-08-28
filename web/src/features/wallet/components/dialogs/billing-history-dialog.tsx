@@ -141,11 +141,22 @@ export function BillingHistoryDialog({
       <div className='space-y-3'>
         {records.map((record) => {
           const statusConfig = getStatusConfig(record.status)
-          const invoiceLabel = record.invoice_issued
-            ? t('Invoiced')
-            : t('Not invoiced')
-          const invoiceVariant = record.invoice_issued ? 'success' : 'neutral'
-          const canManageInvoice = isAdmin && record.status === 'success'
+          const invoiceStatus =
+            record.invoice_status ??
+            (record.invoice_issued ? 'issued' : 'unissued')
+          let invoiceLabel = t('Not invoiced')
+          let invoiceVariant: 'success' | 'warning' | 'neutral' = 'neutral'
+          if (invoiceStatus === 'issued') {
+            invoiceLabel = t('Invoiced')
+            invoiceVariant = 'success'
+          } else if (invoiceStatus === 'issuing') {
+            invoiceLabel = t('Issuing')
+            invoiceVariant = 'warning'
+          }
+          const canManageInvoice =
+            isAdmin &&
+            record.status === 'success' &&
+            invoiceStatus !== 'issuing'
           return (
             <div key={record.id} className='rounded-lg border p-3 sm:p-4'>
               <div className='flex items-start justify-between gap-2'>
@@ -223,21 +234,21 @@ export function BillingHistoryDialog({
                   {canManageInvoice ? (
                     <Button
                       size='sm'
-                      variant={record.invoice_issued ? 'ghost' : 'default'}
+                      variant={invoiceStatus === 'issued' ? 'ghost' : 'default'}
                       onClick={() =>
                         setConfirmInvoice({
                           tradeNo: record.trade_no,
-                          invoiceIssued: !record.invoice_issued,
+                          invoiceIssued: invoiceStatus !== 'issued',
                         })
                       }
                       disabled={updatingInvoice}
                     >
-                      {record.invoice_issued ? (
+                      {invoiceStatus === 'issued' ? (
                         <RotateCcw data-icon='inline-start' />
                       ) : (
                         <ReceiptText data-icon='inline-start' />
                       )}
-                      {record.invoice_issued
+                      {invoiceStatus === 'issued'
                         ? t('Undo invoice mark')
                         : t('Issue invoice')}
                     </Button>
@@ -352,8 +363,9 @@ export function BillingHistoryDialog({
               <SelectContent alignItemWithTrigger={false}>
                 <SelectGroup>
                   <SelectItem value='all'>{t('All invoices')}</SelectItem>
-                  <SelectItem value='issued'>{t('Invoiced')}</SelectItem>
-                  <SelectItem value='unissued'>{t('Not invoiced')}</SelectItem>
+                <SelectItem value='issued'>{t('Invoiced')}</SelectItem>
+                <SelectItem value='issuing'>{t('Issuing')}</SelectItem>
+                <SelectItem value='unissued'>{t('Not invoiced')}</SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>

@@ -103,7 +103,7 @@ describe('payment dispatch', () => {
       }
     )
 
-    assert.equal(success, true)
-    assert.equal(selectedProvider, 'alipay')
+    expect(success).toBe(true)
+    expect(selectedProvider).toBe('alipay')
   })
 })
