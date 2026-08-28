@@ -452,6 +452,31 @@ func TestSendEmailSkipsAuthWhenCredentialsAreEmpty(t *testing.T) {
 	}
 }
 
+func TestSendEmailWithAttachmentSanitizesFilename(t *testing.T) {
+	server := newFakeSMTPServerWithSTARTTLSAdvertisement(t, false)
+	defer server.close()
+	withSMTPSettings(t)
+	SMTPServer = server.host
+	SMTPPort = server.port
+	SMTPSSLEnabled = false
+	SMTPStartTLSEnabled = false
+	SMTPAccount = ""
+	SMTPFrom = "sender@example.com"
+	SMTPToken = ""
+
+	err := SendEmailWithAttachment("Invoice", "receiver@example.com", "<p>invoice</p>", "..\\evil\"\r\n.pdf", "application/pdf", []byte("%PDF-1.7"))
+	require.NoError(t, err)
+	select {
+	case message := <-server.messages:
+		require.Contains(t, message, "filename=")
+		require.NotContains(t, message, "\r\n.pdf")
+		require.NotContains(t, message, "..\\evil\"")
+		require.Contains(t, message, "JVBERi0xLjc=")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for SMTP DATA")
+	}
+}
+
 func TestSendEmailSkipsAuthWhenCredentialsAreIncomplete(t *testing.T) {
 	server := newFakeSMTPServerWithSTARTTLSAdvertisement(t, false)
 	defer server.close()

@@ -1745,6 +1745,89 @@
         ]
       }
     },
+    "/api/user/invoice/titles": {
+      "get": {
+        "summary": "获取当前用户发票抬头",
+        "description": "🔐 需要登录（User权限）",
+        "tags": ["用户管理"],
+        "responses": {"200": {"description": "成功"}}
+      },
+      "post": {
+        "summary": "新增发票抬头",
+        "description": "🔐 需要登录（User权限）",
+        "tags": ["用户管理"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["name", "tax_number", "address", "email"], "properties": {"name": {"type": "string"}, "tax_number": {"type": "string"}, "address": {"type": "string"}, "email": {"type": "string", "format": "email"}}}}}},
+        "responses": {"200": {"description": "成功"}}
+      }
+    },
+    "/api/user/invoice/titles/{id}": {
+      "put": {
+        "summary": "更新发票抬头",
+        "description": "🔐 需要登录（User权限）",
+        "tags": ["用户管理"],
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}],
+        "responses": {"200": {"description": "成功"}}
+      },
+      "delete": {
+        "summary": "删除发票抬头",
+        "description": "🔐 需要登录（User权限）",
+        "tags": ["用户管理"],
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}],
+        "responses": {"200": {"description": "成功"}}
+      }
+    },
+    "/api/user/invoice/orders": {
+      "get": {
+        "summary": "获取可开票充值订单",
+        "description": "🔐 需要登录（User权限）",
+        "tags": ["用户管理"],
+        "parameters": [{"name": "status", "in": "query", "schema": {"type": "string", "enum": ["unissued", "issuing", "issued", "all"]}}],
+        "responses": {"200": {"description": "成功"}}
+      }
+    },
+    "/api/user/invoice/applications": {
+      "get": {
+        "summary": "获取我的发票申请",
+        "description": "🔐 需要登录（User权限）",
+        "tags": ["用户管理"],
+        "responses": {"200": {"description": "成功"}}
+      },
+      "post": {
+        "summary": "提交发票申请",
+        "description": "🔐 需要登录（User权限）",
+        "tags": ["用户管理"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["title_id", "topup_ids"], "properties": {"title_id": {"type": "integer"}, "topup_ids": {"type": "array", "items": {"type": "integer"}}}}}}},
+        "responses": {"200": {"description": "成功"}}
+      }
+    },
+    "/api/user/invoice/applications/{id}": {
+      "get": {
+        "summary": "获取发票申请详情",
+        "description": "🔐 需要登录（User权限）",
+        "tags": ["用户管理"],
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}],
+        "responses": {"200": {"description": "成功"}}
+      }
+    },
+    "/api/user/invoice": {
+      "get": {
+        "summary": "管理员发票申请列表",
+        "description": "👨‍💼 需要管理员权限（Admin）",
+        "tags": ["用户管理"],
+        "parameters": [{"name": "status", "in": "query", "schema": {"type": "string", "enum": ["unissued", "issuing", "issued", "all"]}}, {"name": "user_id", "in": "query", "schema": {"type": "integer"}}, {"name": "keyword", "in": "query", "schema": {"type": "string"}}],
+        "responses": {"200": {"description": "成功"}}
+      }
+    },
+    "/api/user/invoice/template": {
+      "get": {"summary": "获取发票邮件模板", "description": "👨‍💼 需要管理员权限（Admin）", "tags": ["用户管理"], "responses": {"200": {"description": "成功"}}},
+      "put": {"summary": "更新发票邮件模板", "description": "👨‍💼 需要管理员权限（Admin）", "tags": ["用户管理"], "responses": {"200": {"description": "成功"}}}
+    },
+    "/api/user/invoice/{id}": {
+      "get": {"summary": "管理员查看发票详情", "description": "👨‍💼 需要管理员权限（Admin）", "tags": ["用户管理"], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}], "responses": {"200": {"description": "成功"}}}
+    },
+    "/api/user/invoice/{id}/issue": {
+      "post": {"summary": "上传并发送发票", "description": "👨‍💼 需要管理员权限（Admin）", "tags": ["用户管理"], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}], "requestBody": {"required": true, "content": {"multipart/form-data": {"schema": {"type": "object", "required": ["file"], "properties": {"file": {"type": "string", "format": "binary"}}}}}}, "responses": {"200": {"description": "成功"}}}
+    },
     "/api/user/topup": {
       "get": {
         "summary": "获取所有充值记录",

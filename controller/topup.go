@@ -631,11 +631,15 @@ func parseTopUpFilter(c *gin.Context, allowUserId bool) (model.TopUpFilter, erro
 	switch c.Query("invoice_status") {
 	case "", "all":
 	case "issued":
+		filter.InvoiceStatus = model.InvoiceStatusIssued
 		issued := true
 		filter.InvoiceIssued = &issued
 	case "unissued":
+		filter.InvoiceStatus = model.InvoiceStatusUnissued
 		issued := false
 		filter.InvoiceIssued = &issued
+	case "issuing":
+		filter.InvoiceStatus = model.InvoiceStatusIssuing
 	default:
 		return model.TopUpFilter{}, fmt.Errorf("invalid invoice status")
 	}

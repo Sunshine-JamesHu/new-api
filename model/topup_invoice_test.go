@@ -81,3 +81,18 @@ func TestUpdateTopUpInvoiceIssuedRequiresCompletedOrder(t *testing.T) {
 	require.ErrorIs(t, UpdateTopUpInvoiceIssued("invoice-pending", true), ErrTopUpInvoiceIneligible)
 	require.ErrorIs(t, UpdateTopUpInvoiceIssued("missing-invoice-order", true), ErrTopUpNotFound)
 }
+
+func TestUpdateTopUpInvoiceIssuedCannotOverrideIssuingOrder(t *testing.T) {
+	truncateTables(t)
+	require.NoError(t, DB.Create(&TopUp{
+		UserId: 302, Amount: 10, Money: 1, TradeNo: "invoice-issuing",
+		PaymentMethod: PaymentMethodAlipay, Status: common.TopUpStatusSuccess,
+		InvoiceStatus: InvoiceStatusIssuing, CreateTime: time.Now().Unix(),
+	}).Error)
+
+	require.ErrorIs(t, UpdateTopUpInvoiceIssued("invoice-issuing", true), ErrTopUpInvoiceIneligible)
+	updated := GetTopUpByTradeNo("invoice-issuing")
+	require.NotNil(t, updated)
+	assert.Equal(t, InvoiceStatusIssuing, updated.InvoiceStatus)
+	assert.False(t, updated.InvoiceIssued)
+}

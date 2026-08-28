@@ -33,10 +33,11 @@ import {
   User,
   Users,
   Wallet,
+  ReceiptText,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { type SidebarData } from '@/components/layout/types'
+import type { SidebarData } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
 
 /**
@@ -113,6 +114,11 @@ export function useSidebarData(): SidebarData {
             url: '/profile',
             icon: User,
           },
+          {
+            title: t('Invoices'),
+            url: '/invoices',
+            icon: ReceiptText,
+          },
         ],
       },
       {
@@ -143,6 +149,12 @@ export function useSidebarData(): SidebarData {
             title: t('Subscriptions'),
             url: '/subscriptions',
             icon: CreditCard,
+          },
+          {
+            title: t('Invoice Management'),
+            url: '/invoice-management',
+            icon: ReceiptText,
+            requiredRole: ROLE.ADMIN,
           },
           {
             title: t('System Info'),

@@ -23,12 +23,14 @@ type TopUp struct {
 	CompleteTime    int64   `json:"complete_time"`
 	Status          string  `json:"status"`
 	InvoiceIssued   bool    `json:"invoice_issued" gorm:"index"`
+	InvoiceStatus   string  `json:"invoice_status" gorm:"type:varchar(20);index"`
 }
 
 type TopUpFilter struct {
 	Keyword       string
 	UserId        *int
 	InvoiceIssued *bool
+	InvoiceStatus string
 }
 
 const (
@@ -64,6 +66,21 @@ func (topUp *TopUp) Insert() error {
 	var err error
 	err = DB.Create(topUp).Error
 	return err
+}
+
+func (topUp *TopUp) BeforeCreate(_ *gorm.DB) error {
+	if topUp.InvoiceStatus == "" {
+		topUp.InvoiceStatus = InvoiceStatusUnissued
+		if topUp.InvoiceIssued {
+			topUp.InvoiceStatus = InvoiceStatusIssued
+		}
+	}
+	return nil
+}
+
+func (topUp *TopUp) AfterFind(_ *gorm.DB) error {
+	topUp.InvoiceStatus = invoiceStatusOf(topUp)
+	return nil
 }
 
 func topUpQuotaMaxCurrent(creditedQuota int) (int, error) {
@@ -391,7 +408,18 @@ func applyTopUpFilter(query *gorm.DB, filter TopUpFilter) (*gorm.DB, error) {
 	if filter.UserId != nil {
 		query = query.Where("user_id = ?", *filter.UserId)
 	}
-	if filter.InvoiceIssued != nil {
+	if filter.InvoiceStatus != "" {
+		switch filter.InvoiceStatus {
+		case InvoiceStatusIssuing:
+			query = query.Where("invoice_status = ?", InvoiceStatusIssuing)
+		case InvoiceStatusIssued:
+			query = query.Where("invoice_status = ? OR ((invoice_status IS NULL OR invoice_status = ?) AND invoice_issued = ?)", InvoiceStatusIssued, "", true)
+		case InvoiceStatusUnissued:
+			query = query.Where("invoice_status = ? OR ((invoice_status IS NULL OR invoice_status = ?) AND invoice_issued = ?)", InvoiceStatusUnissued, "", false)
+		default:
+			return nil, fmt.Errorf("invalid invoice status")
+		}
+	} else if filter.InvoiceIssued != nil {
 		query = query.Where("invoice_issued = ?", *filter.InvoiceIssued)
 	}
 	if filter.Keyword == "" {
@@ -423,7 +451,17 @@ func UpdateTopUpInvoiceIssued(tradeNo string, invoiceIssued bool) error {
 		if topUp.Status != common.TopUpStatusSuccess {
 			return ErrTopUpInvoiceIneligible
 		}
-		return tx.Model(topUp).Update("invoice_issued", invoiceIssued).Error
+		if invoiceStatusOf(topUp) == InvoiceStatusIssuing {
+			return ErrTopUpInvoiceIneligible
+		}
+		status := InvoiceStatusUnissued
+		if invoiceIssued {
+			status = InvoiceStatusIssued
+		}
+		return tx.Model(topUp).Updates(map[string]interface{}{
+			"invoice_issued": invoiceIssued,
+			"invoice_status": status,
+		}).Error
 	})
 }
 

@@ -104,7 +104,15 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
         setLoading(false)
       }
     }
-  }, [debouncedKeyword, invoiceStatus, isAdmin, keyword, page, pageSize, userId])
+  }, [
+    debouncedKeyword,
+    invoiceStatus,
+    isAdmin,
+    keyword,
+    page,
+    pageSize,
+    userId,
+  ])
 
   /**
    * Complete a pending order (admin only)
