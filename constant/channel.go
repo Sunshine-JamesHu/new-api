@@ -56,10 +56,12 @@ const (
 	ChannelTypeReplicate      = 56
 	ChannelTypeCodex          = 57
 	ChannelTypeAdvancedCustom = 58
+	ChannelTypeNewApiVideo    = 997
 	ChannelTypeSub2API        = 59
 	ChannelTypeNewAPI         = 60
 	ChannelTypeTaskPlugin     = 61
-	ChannelTypeDummy          // this one is only for count, do not add any channel after this
+	ChannelTypeHappyHorse     = 998
+	ChannelTypeDummy          = 1000 // this one is only for count, do not add any channel after this
 
 )
 
@@ -128,6 +130,15 @@ var ChannelBaseURLs = []string{
 	"",                                          //61
 }
 
+func init() {
+	if len(ChannelBaseURLs) <= ChannelTypeDummy {
+		baseURLs := make([]string, ChannelTypeDummy+1)
+		copy(baseURLs, ChannelBaseURLs)
+		ChannelBaseURLs = baseURLs
+	}
+	ChannelBaseURLs[ChannelTypeHappyHorse] = "https://dashscope.aliyuncs.com"
+}
+
 func GetChannelBaseURL(channelType int) string {
 	if channelType < 0 || channelType >= len(ChannelBaseURLs) {
 		return ""
@@ -191,9 +202,11 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeReplicate:      "Replicate",
 	ChannelTypeCodex:          "ChatGPT Subscription (Codex)",
 	ChannelTypeAdvancedCustom: "Advanced Custom",
+	ChannelTypeNewApiVideo:    "NewApiVideo",
 	ChannelTypeSub2API:        "Sub2API",
 	ChannelTypeNewAPI:         "New API",
 	ChannelTypeTaskPlugin:     "Task Plugin",
+	ChannelTypeHappyHorse:     "HappyHorse",
 }
 
 func GetChannelTypeName(channelType int) string {
