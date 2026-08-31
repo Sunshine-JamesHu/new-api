@@ -1,11 +1,9 @@
 package service
 
 import (
-	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
-	"errors"
-	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -15,10 +13,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/setting/billing_setting"
-	"github.com/QuantumNous/new-api/setting/config"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -55,10 +52,6 @@ func TestMain(m *testing.M) {
 		&model.Channel{},
 		&model.Midjourney{},
 		&model.TopUp{},
-		&model.InvoiceTitle{},
-		&model.InvoiceApplication{},
-		&model.InvoiceApplicationOrder{},
-		&model.AffiliateRebate{},
 		&model.UserSubscription{},
 		&model.SystemTask{},
 		&model.SystemTaskLock{},
@@ -75,30 +68,18 @@ func TestMain(m *testing.M) {
 
 func truncate(t *testing.T) {
 	t.Helper()
-	require.NoError(t, model.DB.Exec("DELETE FROM tasks").Error)
-	require.NoError(t, model.DB.Exec("DELETE FROM users").Error)
-	require.NoError(t, model.DB.Exec("DELETE FROM tokens").Error)
-	require.NoError(t, model.DB.Exec("DELETE FROM logs").Error)
-	require.NoError(t, model.DB.Exec("DELETE FROM channels").Error)
-	require.NoError(t, model.DB.Exec("DELETE FROM midjourneys").Error)
-	require.NoError(t, model.DB.Exec("DELETE FROM top_ups").Error)
-	require.NoError(t, model.DB.Exec("DELETE FROM affiliate_rebates").Error)
-	require.NoError(t, model.DB.Exec("DELETE FROM user_subscriptions").Error)
-	require.NoError(t, model.DB.Exec("DELETE FROM system_task_locks").Error)
-	require.NoError(t, model.DB.Exec("DELETE FROM system_tasks").Error)
-}
-
-func withBillingConfig(t *testing.T, values map[string]string) {
-	t.Helper()
-	saved := map[string]string{}
-	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
-		saved[key] = value
-		return nil
-	}))
 	t.Cleanup(func() {
-		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+		model.DB.Exec("DELETE FROM tasks")
+		model.DB.Exec("DELETE FROM users")
+		model.DB.Exec("DELETE FROM tokens")
+		model.DB.Exec("DELETE FROM logs")
+		model.DB.Exec("DELETE FROM channels")
+		model.DB.Exec("DELETE FROM midjourneys")
+		model.DB.Exec("DELETE FROM top_ups")
+		model.DB.Exec("DELETE FROM user_subscriptions")
+		model.DB.Exec("DELETE FROM system_task_locks")
+		model.DB.Exec("DELETE FROM system_tasks")
 	})
-	require.NoError(t, config.GlobalConfig.LoadFromDB(values))
 }
 
 func seedUser(t *testing.T, id int, quota int) {
@@ -254,6 +235,194 @@ func TestTaskBillingOtherFiltersHistoricalOtherRatios(t *testing.T) {
 	assert.NotContains(t, other, "negative")
 	assert.NotContains(t, other, "nan")
 	assert.NotContains(t, other, "inf")
+	assert.NotContains(t, other, "billing_mode")
+	assert.NotContains(t, other, "expr_b64")
+	assert.NotContains(t, other, "matched_tier")
+	assert.NotContains(t, other, "usage_facts")
+}
+
+func TestTaskBillingOtherIncludesTieredSnapshotAndKeepsUsageFactsNested(t *testing.T) {
+	task := makeTask(1, 1, 100, 0, BillingSourceWallet, 0)
+	expression := `tier("720P", u("seconds") * 5)`
+	task.PrivateData.BillingContext.TieredSnapshot = &billingexpr.BillingSnapshot{
+		ExprString:    expression,
+		EstimatedTier: "720P",
+		UsageFacts: map[string]any{
+			"resolution": "720P",
+			"seconds":    5,
+		},
+	}
+
+	other := taskBillingOther(task)
+
+	assert.Equal(t, "tiered_expr", other["billing_mode"])
+	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte(expression)), other["expr_b64"])
+	assert.Equal(t, "720P", other["matched_tier"])
+	facts, ok := other["usage_facts"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, map[string]any{
+		"resolution": "720P",
+		"seconds":    5,
+	}, facts)
+	assert.NotContains(t, other, "resolution")
+	assert.NotContains(t, other, "seconds")
+}
+
+func TestTaskBillingOtherOmitsEmptyUsageFacts(t *testing.T) {
+	task := makeTask(1, 1, 100, 0, BillingSourceWallet, 0)
+	expression := `tier("base", 1)`
+	task.PrivateData.BillingContext.TieredSnapshot = &billingexpr.BillingSnapshot{
+		ExprString:    expression,
+		EstimatedTier: "base",
+		UsageFacts:    map[string]any{},
+	}
+
+	other := taskBillingOther(task)
+
+	assert.Equal(t, "tiered_expr", other["billing_mode"])
+	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte(expression)), other["expr_b64"])
+	assert.Equal(t, "base", other["matched_tier"])
+	assert.NotContains(t, other, "usage_facts")
+}
+
+func callLogTaskConsumption(t *testing.T, info *relaycommon.RelayInfo, task *model.Task) *model.Log {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
+	ctx.Set("token_name", "test_token")
+	LogTaskConsumption(ctx, info, task)
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	return log
+}
+
+func TestLogTaskConsumptionIncludesTieredSnapshotUsageFacts(t *testing.T) {
+	truncate(t)
+	const userID, channelID = 40, 40
+	seedUser(t, userID, 10_000)
+	seedChannel(t, channelID)
+
+	expression := `tier("720P", u("seconds") * 5)`
+	task := makeTask(userID, channelID, 100, 0, BillingSourceWallet, 0)
+	info := &relaycommon.RelayInfo{
+		UserId:          userID,
+		TokenId:         0,
+		OriginModelName: "wan2.5-i2v-preview",
+		UsingGroup:      "default",
+		ChannelMeta:     &relaycommon.ChannelMeta{ChannelId: channelID},
+		TaskRelayInfo:   &relaycommon.TaskRelayInfo{Action: "GENERATE"},
+		PriceData: types.PriceData{
+			ModelPrice:     0.02,
+			Quota:          100,
+			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
+		},
+		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+			ExprString:    expression,
+			EstimatedTier: "720P",
+			UsageFacts: map[string]any{
+				"resolution": "720P",
+				"seconds":    5,
+			},
+		},
+	}
+
+	log := callLogTaskConsumption(t, info, task)
+
+	var other map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+	assert.Equal(t, "tiered_expr", other["billing_mode"])
+	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte(expression)), other["expr_b64"])
+	assert.Equal(t, "720P", other["matched_tier"])
+	facts, ok := other["usage_facts"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "720P", facts["resolution"])
+	assert.Equal(t, float64(5), facts["seconds"])
+	assert.NotContains(t, other, "resolution")
+	assert.NotContains(t, other, "seconds")
+	assert.Contains(t, log.Content, "计算参数：")
+	assert.Contains(t, log.Content, "resolution: 720P")
+	assert.Contains(t, log.Content, "seconds: 5")
+}
+
+func TestLogTaskConsumptionWithoutSnapshotKeepsRatioMode(t *testing.T) {
+	truncate(t)
+	const userID, channelID = 41, 41
+	seedUser(t, userID, 10_000)
+	seedChannel(t, channelID)
+
+	priceData := types.PriceData{
+		ModelPrice:     0.02,
+		Quota:          100,
+		GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
+	}
+	priceData.AddOtherRatio("size", 2)
+	task := makeTask(userID, channelID, 100, 0, BillingSourceWallet, 0)
+	info := &relaycommon.RelayInfo{
+		UserId:          userID,
+		TokenId:         0,
+		OriginModelName: "test-model",
+		UsingGroup:      "default",
+		ChannelMeta:     &relaycommon.ChannelMeta{ChannelId: channelID},
+		TaskRelayInfo:   &relaycommon.TaskRelayInfo{Action: "GENERATE"},
+		PriceData:       priceData,
+	}
+
+	log := callLogTaskConsumption(t, info, task)
+
+	var other map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+	assert.Equal(t, true, other["is_task"])
+	assert.Equal(t, "/v1/videos", other["request_path"])
+	assert.NotContains(t, other, "billing_mode")
+	assert.NotContains(t, other, "expr_b64")
+	assert.NotContains(t, other, "matched_tier")
+	assert.NotContains(t, other, "usage_facts")
+	assert.Contains(t, log.Content, "计算参数：")
+	assert.Contains(t, log.Content, "size: 2.00")
+}
+
+func TestTaskBillingOtherSeparatesPluginAndRootDiagnostics(t *testing.T) {
+	task := makeTask(1, 1, 100, 0, BillingSourceWallet, 0)
+	task.TaskID = "task_public"
+	task.PrivateData.UpstreamTaskID = "upstream-private"
+	task.PrivateData.NodeName = "node-a"
+	task.PrivateData.Execution = &model.TaskExecutionSnapshot{
+		TaskPlugin: &model.TaskPluginSnapshot{
+			Key:     "document-parser",
+			Name:    "Document Parser",
+			Version: "1.2.3",
+			Author: &model.TaskPluginAuthorSnapshot{
+				Name: "Community Author",
+				URL:  "https://plugins.example/author",
+			},
+			APIVersion: 1,
+			Generation: 42,
+		},
+	}
+
+	other := taskBillingOther(task)
+
+	assert.Equal(t, "task_public", other["task_id"])
+	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	require.True(t, ok)
+	pluginInfo, ok := adminInfo["task_plugin"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "document-parser", pluginInfo["key"])
+	assert.Equal(t, "1.2.3", pluginInfo["version"])
+	assert.Equal(t, map[string]interface{}{
+		"name": "Community Author",
+		"url":  "https://plugins.example/author",
+	}, pluginInfo["author"])
+
+	rootInfo, ok := other["root_info"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "upstream-private", rootInfo["upstream_task_id"])
+	assert.Equal(t, "node-a", rootInfo["node_name"])
+	runtimeInfo, ok := rootInfo["task_plugin"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, uint64(42), runtimeInfo["generation"])
+	assert.NotContains(t, runtimeInfo, "author")
 }
 
 func TestTaskBillingContextPriceDataFiltersMultiplier(t *testing.T) {
@@ -287,20 +456,6 @@ func getUserQuota(t *testing.T, id int) int {
 	var user model.User
 	require.NoError(t, model.DB.Select("quota").Where("id = ?", id).First(&user).Error)
 	return user.Quota
-}
-
-func getUserUsedQuota(t *testing.T, id int) int {
-	t.Helper()
-	var user model.User
-	require.NoError(t, model.DB.Select("used_quota").Where("id = ?", id).First(&user).Error)
-	return user.UsedQuota
-}
-
-func getUserRequestCount(t *testing.T, id int) int {
-	t.Helper()
-	var user model.User
-	require.NoError(t, model.DB.Select("request_count").Where("id = ?", id).First(&user).Error)
-	return user.RequestCount
 }
 
 func getUserUsageAccounting(t *testing.T, id int) (int, int) {
@@ -360,58 +515,6 @@ func getLastLog(t *testing.T) *model.Log {
 		return nil
 	}
 	return &log
-}
-
-func TestLogTaskConsumption_PerSecondMarksResolutionAndKeepsBillingOther(t *testing.T) {
-	truncate(t)
-	withBillingConfig(t, map[string]string{
-		"billing_setting.billing_mode": `{"video-model":"per_second"}`,
-	})
-	gin.SetMode(gin.TestMode)
-
-	const userID, channelID = 50, 50
-	seedUser(t, userID, 10000000)
-	seedChannel(t, channelID)
-
-	w := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(w)
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", nil)
-	ctx.Set("token_name", "test_token")
-
-	priceData := types.PriceData{
-		ModelPrice:     0.9,
-		Quota:          1800000,
-		GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
-	}
-	priceData.AddOtherRatio("seconds", 4)
-	priceData.AddOtherRatio("resolution-720P", 1)
-
-	LogTaskConsumption(ctx, &relaycommon.RelayInfo{
-		UserId:          userID,
-		TokenId:         50,
-		UsingGroup:      "default",
-		OriginModelName: "video-model",
-		ChannelMeta: &relaycommon.ChannelMeta{
-			ChannelId: channelID,
-		},
-		TaskRelayInfo: &relaycommon.TaskRelayInfo{
-			Action: "textGenerate",
-		},
-		PriceData: priceData,
-	})
-
-	log := getLastLog(t)
-	require.NotNil(t, log)
-	assert.Contains(t, log.Content, "按秒计费")
-	assert.Contains(t, log.Content, "计费分辨率：720P")
-	assert.NotContains(t, log.Content, "seconds: 5.00")
-	assert.NotContains(t, log.Content, "resolution-720P: 1.00")
-
-	var other map[string]interface{}
-	require.NoError(t, common.Unmarshal([]byte(log.Other), &other))
-	assert.Equal(t, "per_second", other["billing_mode"])
-	assert.Equal(t, float64(4), other["seconds"])
-	assert.Equal(t, float64(1), other["resolution-720P"])
 }
 
 func countLogs(t *testing.T) int64 {
@@ -905,19 +1008,13 @@ func TestRecalculate_NegativeDelta(t *testing.T) {
 	ctx := context.Background()
 
 	const userID, tokenID, channelID = 11, 11, 11
-	const grantQuota, preConsumed = 10000, 2700
-	const actualQuota = 60 // over-charged by 2640
-	const requestCount = 1
+	const initQuota, preConsumed = 10000, 5000
+	const actualQuota = 3000 // over-charged by 2000
 	const tokenRemain = 5000
 
-	seedUser(t, userID, grantQuota-preConsumed)
-	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
-		"used_quota":    preConsumed,
-		"request_count": requestCount,
-	}).Error)
+	seedUser(t, userID, initQuota)
 	seedToken(t, tokenID, userID, "sk-recalc-neg", tokenRemain)
 	seedChannel(t, channelID)
-	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", channelID).Update("used_quota", preConsumed).Error)
 	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
@@ -925,18 +1022,14 @@ func TestRecalculate_NegativeDelta(t *testing.T) {
 	RecalculateTaskQuota(ctx, task, actualQuota, "adaptor adjustment")
 
 	// User quota should increase by abs(delta) = 2000 (refund overpayment)
-	assert.Equal(t, grantQuota-actualQuota, getUserQuota(t, userID))
-	assert.Equal(t, actualQuota, getUserUsedQuota(t, userID))
-	assert.Equal(t, requestCount, getUserRequestCount(t, userID))
-	assert.Equal(t, int64(actualQuota), getChannelUsedQuota(t, channelID))
-	assert.Equal(t, grantQuota, getUserQuota(t, userID)+getUserUsedQuota(t, userID))
+	assert.Equal(t, initQuota+(preConsumed-actualQuota), getUserQuota(t, userID))
 
 	// Token should be refunded the difference
 	assert.Equal(t, tokenRemain+(preConsumed-actualQuota), getTokenRemainQuota(t, tokenID))
 	assert.Equal(t, actualQuota, getTokenUsedQuota(t, tokenID))
-	recordedUsed, recordedRequests := getUserUsageAccounting(t, userID)
-	assert.Equal(t, actualQuota, recordedUsed)
-	assert.Equal(t, 1, recordedRequests)
+	usedQuota, requestCount := getUserUsageAccounting(t, userID)
+	assert.Equal(t, actualQuota, usedQuota)
+	assert.Equal(t, 1, requestCount)
 	assert.Equal(t, int64(actualQuota), getChannelUsedQuota(t, channelID))
 
 	// task.Quota updated
@@ -973,17 +1066,37 @@ func TestRecalculate_ActualQuotaZero(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
 
-	const userID = 13
+	const userID, preConsumed = 13, 5000
 	const initQuota = 10000
 
 	seedUser(t, userID, initQuota)
 
-	task := makeTask(userID, 0, 5000, 0, BillingSourceWallet, 0)
+	task := makeTask(userID, 0, preConsumed, 0, BillingSourceWallet, 0)
+	require.NoError(t, model.DB.Create(task).Error)
 
 	RecalculateTaskQuota(ctx, task, 0, "zero actual")
 
-	// No change (early return)
+	assert.Equal(t, initQuota+preConsumed, getUserQuota(t, userID))
+	assert.Zero(t, task.Quota)
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, preConsumed, log.Quota)
+}
+
+func TestRecalculate_RejectsNegativeActualQuota(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, preConsumed = 34, 5000
+	const initQuota = 10000
+	seedUser(t, userID, initQuota)
+	task := makeTask(userID, 0, preConsumed, 0, BillingSourceWallet, 0)
+
+	RecalculateTaskQuota(ctx, task, -1, "invalid negative actual")
+
 	assert.Equal(t, initQuota, getUserQuota(t, userID))
+	assert.Equal(t, preConsumed, task.Quota)
 	assert.Equal(t, int64(0), countLogs(t))
 }
 
@@ -1191,63 +1304,6 @@ func TestCASGuardedSettle_Win(t *testing.T) {
 	assert.Equal(t, actualQuota, task.Quota)
 }
 
-func TestCASGuardedSettle_MaturesAffiliateRebate(t *testing.T) {
-	truncate(t)
-	ctx := context.Background()
-	original := *operation_setting.GetPaymentSetting()
-	operation_setting.GetPaymentSetting().AffiliateRebateEnabled = true
-	operation_setting.GetPaymentSetting().AffiliateRebateRate = 10
-	operation_setting.GetPaymentSetting().ComplianceConfirmed = true
-	operation_setting.GetPaymentSetting().ComplianceTermsVersion = operation_setting.CurrentComplianceTermsVersion
-	t.Cleanup(func() {
-		*operation_setting.GetPaymentSetting() = original
-	})
-
-	const inviterID, inviteeID, channelID = 24, 25, 25
-	require.NoError(t, model.DB.Create(&model.User{
-		Id:       inviterID,
-		Username: "task_inviter",
-		AffCode:  "TASKAFF24",
-		Status:   common.UserStatusEnabled,
-	}).Error)
-	require.NoError(t, model.DB.Create(&model.User{
-		Id:        inviteeID,
-		Username:  "task_invitee",
-		AffCode:   "TASKAFF25",
-		Quota:     3000,
-		Status:    common.UserStatusEnabled,
-		InviterId: inviterID,
-	}).Error)
-	seedChannel(t, channelID)
-
-	topUp := &model.TopUp{
-		Id:              2501,
-		UserId:          inviteeID,
-		Amount:          3000,
-		TradeNo:         "task-rebate-mature",
-		PaymentProvider: model.PaymentProviderStripe,
-		Status:          common.TopUpStatusSuccess,
-		CreateTime:      time.Now().Unix(),
-	}
-	require.NoError(t, model.DB.Create(topUp).Error)
-	require.NoError(t, model.CreatePendingAffiliateRebateForTopUp(model.DB, topUp, 3000))
-
-	task := makeTask(inviteeID, channelID, 3000, 0, BillingSourceWallet, 0)
-	task.Status = model.TaskStatus(model.TaskStatusInProgress)
-	require.NoError(t, model.DB.Create(task).Error)
-
-	simulatePollBilling(ctx, task, model.TaskStatus(model.TaskStatusSuccess), 3000)
-
-	var rebate model.AffiliateRebate
-	require.NoError(t, model.DB.Where("top_up_id = ?", topUp.Id).First(&rebate).Error)
-	assert.Equal(t, model.AffiliateRebateStatusSettled, rebate.Status)
-	assert.Equal(t, 0, rebate.RemainingQuota)
-	var inviter model.User
-	require.NoError(t, model.DB.Select("aff_quota", "aff_history").Where("id = ?", inviterID).First(&inviter).Error)
-	assert.Equal(t, 300, inviter.AffQuota)
-	assert.Equal(t, 300, inviter.AffHistoryQuota)
-}
-
 func TestNonTerminalUpdate_NoBilling(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
@@ -1295,127 +1351,9 @@ func (m *mockAdaptor) AdjustBillingOnComplete(_ *model.Task, _ *relaycommon.Task
 	return m.adjustReturn
 }
 
-type pollingMockAdaptor struct {
-	body        []byte
-	parseCalled bool
-}
-
-func (m *pollingMockAdaptor) Init(_ *relaycommon.RelayInfo) {}
-func (m *pollingMockAdaptor) FetchTask(string, string, map[string]any, string) (*http.Response, error) {
-	return &http.Response{
-		StatusCode: http.StatusOK,
-		Body:       io.NopCloser(bytes.NewReader(m.body)),
-	}, nil
-}
-func (m *pollingMockAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
-	m.parseCalled = true
-	return nil, errors.New("ParseTaskResult should not be called for New API task response")
-}
-func (m *pollingMockAdaptor) AdjustBillingOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) int {
-	return 0
-}
-
-func TestUpdateVideoSingleTaskPreservesNewAPIDataAndReqKey(t *testing.T) {
-	truncate(t)
-
-	task := makeTask(40, 40, 0, 0, BillingSourceWallet, 0)
-	task.TaskID = "task_public_newapi"
-	task.Action = "textGenerate"
-	task.PrivateData.UpstreamTaskID = "task_upstream_newapi"
-	task.Data = json.RawMessage(`{"code":10000,"req_key":"jimeng_t2v_v30","data":{"task_id":"task_upstream_newapi"}}`)
-	require.NoError(t, model.DB.Create(task).Error)
-
-	adaptor := &pollingMockAdaptor{body: []byte(`{
-		"code":"success",
-		"data":{
-			"task_id":"task_public_newapi",
-			"status":"SUCCESS",
-			"progress":"100%",
-			"data":{"code":10000,"data":{"status":"done","video_url":"https://example.com/newapi.mp4"}}
-		}
-	}`)}
-	ch := &model.Channel{Id: 40, Key: "sk-test"}
-	err := updateVideoSingleTask(context.Background(), adaptor, ch, "task_upstream_newapi", map[string]*model.Task{
-		"task_upstream_newapi": task,
-	})
-	require.NoError(t, err)
-	require.False(t, adaptor.parseCalled)
-
-	var saved model.Task
-	require.NoError(t, model.DB.First(&saved, task.ID).Error)
-	assert.Contains(t, string(saved.Data), `"req_key":"jimeng_t2v_v30"`)
-	assert.Contains(t, string(saved.Data), `"video_url":"https://example.com/newapi.mp4"`)
-	assert.NotContains(t, string(saved.Data), `"code":"success"`)
-}
-
 // ===========================================================================
 // PerCallBilling tests — settleTaskBillingOnComplete
 // ===========================================================================
-
-func TestUpdateVideoSingleTaskStoresNewAPITaskDtoResultURL(t *testing.T) {
-	truncate(t)
-
-	task := makeTask(41, 41, 0, 0, BillingSourceWallet, 0)
-	task.TaskID = "task_public_newapi_dto"
-	task.Action = "textGenerate"
-	task.PrivateData.UpstreamTaskID = "task_upstream_newapi_dto"
-	task.Status = model.TaskStatusInProgress
-	require.NoError(t, model.DB.Create(task).Error)
-
-	adaptor := &pollingMockAdaptor{body: []byte(`{
-		"code":"success",
-		"data":{
-			"task_id":"task_public_newapi_dto",
-			"status":"SUCCESS",
-			"progress":"100%",
-			"result_url":"https://example.com/newapi-dto.mp4"
-		}
-	}`)}
-	ch := &model.Channel{Id: 41, Key: "sk-test"}
-	err := updateVideoSingleTask(context.Background(), adaptor, ch, "task_upstream_newapi_dto", map[string]*model.Task{
-		"task_upstream_newapi_dto": task,
-	})
-	require.NoError(t, err)
-	require.False(t, adaptor.parseCalled)
-
-	var saved model.Task
-	require.NoError(t, model.DB.First(&saved, task.ID).Error)
-	assert.EqualValues(t, model.TaskStatusSuccess, saved.Status)
-	assert.Equal(t, "https://example.com/newapi-dto.mp4", saved.PrivateData.ResultURL)
-	assert.Empty(t, saved.FailReason)
-}
-
-func TestUpdateVideoSingleTaskUsesNewAPIFailReasonAsLegacyResultURL(t *testing.T) {
-	truncate(t)
-
-	task := makeTask(42, 42, 0, 0, BillingSourceWallet, 0)
-	task.TaskID = "task_public_newapi_legacy_url"
-	task.Action = "textGenerate"
-	task.PrivateData.UpstreamTaskID = "task_upstream_newapi_legacy_url"
-	task.Status = model.TaskStatusInProgress
-	require.NoError(t, model.DB.Create(task).Error)
-
-	adaptor := &pollingMockAdaptor{body: []byte(`{
-		"code":"success",
-		"data":{
-			"task_id":"task_public_newapi_legacy_url",
-			"status":"SUCCESS",
-			"progress":"100%",
-			"fail_reason":"https://example.com/newapi-legacy.mp4"
-		}
-	}`)}
-	ch := &model.Channel{Id: 42, Key: "sk-test"}
-	err := updateVideoSingleTask(context.Background(), adaptor, ch, "task_upstream_newapi_legacy_url", map[string]*model.Task{
-		"task_upstream_newapi_legacy_url": task,
-	})
-	require.NoError(t, err)
-	require.False(t, adaptor.parseCalled)
-
-	var saved model.Task
-	require.NoError(t, model.DB.First(&saved, task.ID).Error)
-	assert.EqualValues(t, model.TaskStatusSuccess, saved.Status)
-	assert.Equal(t, "https://example.com/newapi-legacy.mp4", saved.PrivateData.ResultURL)
-}
 
 func TestSettle_PerCallBilling_SkipsAdaptorAdjust(t *testing.T) {
 	truncate(t)
@@ -1435,9 +1373,10 @@ func TestSettle_PerCallBilling_SkipsAdaptorAdjust(t *testing.T) {
 	adaptor := &mockAdaptor{adjustReturn: 2000}
 	taskResult := &relaycommon.TaskInfo{Status: model.TaskStatusSuccess}
 
-	settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+	settled := settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
 
 	// Per-call: no adjustment despite adaptor returning 2000
+	assert.False(t, settled)
 	assert.Equal(t, initQuota, getUserQuota(t, userID))
 	assert.Equal(t, tokenRemain, getTokenRemainQuota(t, tokenID))
 	assert.Equal(t, preConsumed, task.Quota)
@@ -1462,35 +1401,10 @@ func TestSettle_PerCallBilling_SkipsTotalTokens(t *testing.T) {
 	adaptor := &mockAdaptor{adjustReturn: 0}
 	taskResult := &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, TotalTokens: 9999}
 
-	settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+	settled := settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
 
 	// Per-call: no recalculation by tokens
-	assert.Equal(t, initQuota, getUserQuota(t, userID))
-	assert.Equal(t, tokenRemain, getTokenRemainQuota(t, tokenID))
-	assert.Equal(t, preConsumed, task.Quota)
-	assert.Equal(t, int64(0), countLogs(t))
-}
-
-func TestSettle_PerSecondBilling_SkipsTokenRecalc(t *testing.T) {
-	truncate(t)
-	ctx := context.Background()
-
-	const userID, tokenID, channelID = 33, 33, 33
-	const initQuota, preConsumed = 10000, 4000
-	const tokenRemain = 7000
-
-	seedUser(t, userID, initQuota)
-	seedToken(t, tokenID, userID, "sk-per-second", tokenRemain)
-	seedChannel(t, channelID)
-
-	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
-	task.PrivateData.BillingContext.BillingMode = billing_setting.BillingModePerSecond
-
-	adaptor := &mockAdaptor{adjustReturn: 2000}
-	taskResult := &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, TotalTokens: 9999}
-
-	settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
-
+	assert.False(t, settled)
 	assert.Equal(t, initQuota, getUserQuota(t, userID))
 	assert.Equal(t, tokenRemain, getTokenRemainQuota(t, tokenID))
 	assert.Equal(t, preConsumed, task.Quota)
@@ -1516,9 +1430,10 @@ func TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment(t *testing.T) {
 	adaptor := &mockAdaptor{adjustReturn: adaptorQuota}
 	taskResult := &relaycommon.TaskInfo{Status: model.TaskStatusSuccess}
 
-	settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+	settled := settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
 
 	// Non-per-call: adaptor adjustment applies (refund 2000)
+	assert.True(t, settled)
 	assert.Equal(t, initQuota+(preConsumed-adaptorQuota), getUserQuota(t, userID))
 	assert.Equal(t, tokenRemain+(preConsumed-adaptorQuota), getTokenRemainQuota(t, tokenID))
 	assert.Equal(t, adaptorQuota, task.Quota)
@@ -1528,12 +1443,302 @@ func TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment(t *testing.T) {
 	assert.Equal(t, model.LogTypeRefund, log.Type)
 }
 
-func TestPreserveTaskReqKey(t *testing.T) {
-	oldData := []byte(`{"code":10000,"req_key":"jimeng_t2v_v30","data":{"task_id":"upstream"}}`)
-	newData := []byte(`{"code":10000,"data":{"status":"generating","video_url":""}}`)
+func TestSettle_TieredEvaluationFailureKeepsPreConsumedCharge(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
 
-	got := preserveTaskReqKey(oldData, newData)
+	const userID, preConsumed = 33, 5_000
+	const initialQuota = 10_000
+	seedUser(t, userID, initialQuota)
 
-	assert.Contains(t, string(got), `"req_key":"jimeng_t2v_v30"`)
-	assert.Contains(t, string(got), `"status":"generating"`)
+	task := makeTask(userID, 0, preConsumed, 0, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext.TieredSnapshot = &billingexpr.BillingSnapshot{
+		ExprString:       `tier("broken",`,
+		ExprHash:         billingexpr.ExprHashString(`tier("broken",`),
+		GroupRatio:       1,
+		QuotaPerUnit:     1_000,
+		ExprVersion:      1,
+		TaskUsageBilling: true,
+	}
+
+	settled := settleTaskBillingOnComplete(ctx, &mockAdaptor{}, task, &relaycommon.TaskInfo{Status: model.TaskStatusFailure})
+
+	assert.True(t, settled)
+	assert.Equal(t, preConsumed, task.Quota)
+	assert.Equal(t, initialQuota, getUserQuota(t, userID))
+	assert.Equal(t, int64(0), countLogs(t))
+}
+
+func TestSettle_TieredFailureReturnsFalseForCallerRefund(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID = 37
+	const initialQuota, preConsumed = 10_000, 25
+	seedUser(t, userID, initialQuota)
+
+	expression := `tier("base", u("seconds") + u("clips") * 10)`
+	task := makeTask(userID, 0, preConsumed, 0, BillingSourceWallet, 0)
+	task.Status = model.TaskStatusFailure
+	task.PrivateData.BillingContext.TieredSnapshot = &billingexpr.BillingSnapshot{
+		ExprString:       expression,
+		ExprHash:         billingexpr.ExprHashString(expression),
+		GroupRatio:       1,
+		QuotaPerUnit:     1,
+		ExprVersion:      1,
+		TaskUsageBilling: true,
+		UsageFacts:       map[string]any{"seconds": float64(5), "clips": float64(2)},
+		EstimatedTier:    "base",
+	}
+
+	settled := settleTaskBillingOnComplete(
+		ctx,
+		&mockAdaptor{adjustReturn: 1},
+		task,
+		&relaycommon.TaskInfo{Status: model.TaskStatusFailure, UsageFacts: map[string]any{"seconds": float64(8)}},
+	)
+
+	assert.False(t, settled)
+	assert.Equal(t, preConsumed, task.Quota)
+	assert.Equal(t, map[string]any{"seconds": float64(5), "clips": float64(2)}, task.PrivateData.BillingContext.TieredSnapshot.UsageFacts)
+	assert.Equal(t, "base", task.PrivateData.BillingContext.TieredSnapshot.EstimatedTier)
+	assert.Equal(t, initialQuota, getUserQuota(t, userID))
+	assert.Equal(t, int64(0), countLogs(t))
+}
+
+func TestSettle_TieredSuccessStillRecomputes(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID = 38
+	const initialQuota, preConsumed = 10_000, 50
+	seedUser(t, userID, initialQuota)
+
+	expression := `tier("base", u("seconds") + u("clips") * 10)`
+	task := makeTask(userID, 0, preConsumed, 0, BillingSourceWallet, 0)
+	task.Status = model.TaskStatusSuccess
+	task.PrivateData.BillingContext.TieredSnapshot = &billingexpr.BillingSnapshot{
+		ExprString:       expression,
+		ExprHash:         billingexpr.ExprHashString(expression),
+		GroupRatio:       1,
+		QuotaPerUnit:     1,
+		ExprVersion:      1,
+		TaskUsageBilling: true,
+		UsageFacts:       map[string]any{"seconds": float64(5), "clips": float64(2)},
+		EstimatedTier:    "base",
+	}
+
+	settled := settleTaskBillingOnComplete(
+		ctx,
+		&mockAdaptor{adjustReturn: 1},
+		task,
+		&relaycommon.TaskInfo{Status: model.TaskStatusSuccess, UsageFacts: map[string]any{"seconds": float64(8)}},
+	)
+
+	assert.True(t, settled)
+	assert.Equal(t, 28, task.Quota)
+	assert.Equal(t, map[string]any{"seconds": float64(8), "clips": float64(2)}, task.PrivateData.BillingContext.TieredSnapshot.UsageFacts)
+	assert.Equal(t, "base", task.PrivateData.BillingContext.TieredSnapshot.EstimatedTier)
+	assert.Equal(t, initialQuota+(preConsumed-28), getUserQuota(t, userID))
+
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	assert.Equal(t, model.LogTypeRefund, log.Type)
+	var other map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+	assert.Equal(t, "tiered_expr", other["billing_mode"])
+	assert.Equal(t, "base", other["matched_tier"])
+	facts, ok := other["usage_facts"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, map[string]any{"seconds": float64(8), "clips": float64(2)}, facts)
+}
+
+func TestSettle_TieredUsageFactsMergeCompletionOverSubmission(t *testing.T) {
+	tests := []struct {
+		name            string
+		completionFacts map[string]any
+		expectedQuota   int
+		expectedFacts   map[string]any
+	}{
+		{
+			name:          "submission facts survive missing completion facts",
+			expectedQuota: 25,
+			expectedFacts: map[string]any{"seconds": float64(5), "clips": float64(2)},
+		},
+		{
+			name:            "completion facts partially override submission facts",
+			completionFacts: map[string]any{"seconds": float64(8)},
+			expectedQuota:   28,
+			expectedFacts:   map[string]any{"seconds": float64(8), "clips": float64(2)},
+		},
+		{
+			name:            "completion facts fully override submission facts",
+			completionFacts: map[string]any{"seconds": float64(8), "clips": float64(3)},
+			expectedQuota:   38,
+			expectedFacts:   map[string]any{"seconds": float64(8), "clips": float64(3)},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			truncate(t)
+			const userID = 34
+			const initialQuota = 10_000
+			const preConsumed = 50
+			seedUser(t, userID, initialQuota)
+
+			expression := `tier("base", u("seconds") + u("clips") * 10)`
+			submissionFacts := map[string]any{"seconds": float64(5), "clips": float64(2)}
+			task := makeTask(userID, 0, preConsumed, 0, BillingSourceWallet, 0)
+			task.PrivateData.BillingContext.TieredSnapshot = &billingexpr.BillingSnapshot{
+				ExprString:       expression,
+				ExprHash:         billingexpr.ExprHashString(expression),
+				GroupRatio:       1,
+				QuotaPerUnit:     1,
+				ExprVersion:      1,
+				TaskUsageBilling: true,
+				UsageFacts:       submissionFacts,
+				EstimatedTier:    "base",
+			}
+
+			settled := settleTaskBillingOnComplete(
+				context.Background(),
+				&mockAdaptor{},
+				task,
+				&relaycommon.TaskInfo{Status: model.TaskStatusSuccess, UsageFacts: testCase.completionFacts},
+			)
+
+			assert.True(t, settled)
+			assert.Equal(t, testCase.expectedQuota, task.Quota)
+			assert.Equal(t, map[string]any{"seconds": float64(5), "clips": float64(2)}, submissionFacts)
+			require.NotNil(t, task.PrivateData.BillingContext.TieredSnapshot)
+			assert.Equal(t, testCase.expectedFacts, task.PrivateData.BillingContext.TieredSnapshot.UsageFacts)
+			assert.Equal(t, "base", task.PrivateData.BillingContext.TieredSnapshot.EstimatedTier)
+
+			log := getLastLog(t)
+			require.NotNil(t, log)
+			var other map[string]any
+			require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+			assert.Equal(t, "tiered_expr", other["billing_mode"])
+			assert.Equal(t, "base", other["matched_tier"])
+			facts, ok := other["usage_facts"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, testCase.expectedFacts, facts)
+			assert.NotContains(t, other, "seconds")
+			assert.NotContains(t, other, "clips")
+		})
+	}
+}
+
+func TestSettle_TieredSnapshotWriteBackUsesSettledFactsAndMatchedTier(t *testing.T) {
+	truncate(t)
+	const userID = 36
+	const initialQuota = 10_000
+	const preConsumed = 25
+	seedUser(t, userID, initialQuota)
+
+	expression := `u("resolution") == "1080P" ? tier("1080P", u("seconds") * 10) : tier("720P", u("seconds") * 5)`
+	task := makeTask(userID, 0, preConsumed, 0, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext.TieredSnapshot = &billingexpr.BillingSnapshot{
+		ExprString:       expression,
+		ExprHash:         billingexpr.ExprHashString(expression),
+		GroupRatio:       1,
+		QuotaPerUnit:     1,
+		ExprVersion:      1,
+		TaskUsageBilling: true,
+		UsageFacts:       map[string]any{"resolution": "720P", "seconds": float64(5)},
+		EstimatedTier:    "720P",
+	}
+
+	settled := settleTaskBillingOnComplete(
+		context.Background(),
+		&mockAdaptor{},
+		task,
+		&relaycommon.TaskInfo{
+			Status:     model.TaskStatusSuccess,
+			UsageFacts: map[string]any{"resolution": "1080P"},
+		},
+	)
+
+	require.True(t, settled)
+	snap := task.PrivateData.BillingContext.TieredSnapshot
+	require.NotNil(t, snap)
+	assert.Equal(t, map[string]any{"resolution": "1080P", "seconds": float64(5)}, snap.UsageFacts)
+	assert.Equal(t, "1080P", snap.EstimatedTier)
+	assert.Equal(t, 50, task.Quota)
+
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	var other map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+	assert.Equal(t, "tiered_expr", other["billing_mode"])
+	assert.Equal(t, "1080P", other["matched_tier"])
+	facts, ok := other["usage_facts"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "1080P", facts["resolution"])
+	assert.Equal(t, float64(5), facts["seconds"])
+	assert.NotContains(t, other, "resolution")
+	assert.NotContains(t, other, "seconds")
+}
+
+func TestSettle_TokenRecalcFallsBackToCompletionTokens(t *testing.T) {
+	previousRatios := ratio_setting.ModelRatio2JSONString()
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"test-model":1}`))
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(previousRatios))
+	})
+
+	tests := []struct {
+		name             string
+		totalTokens      int
+		completionTokens int
+		wantSettled      bool
+		wantQuota        int
+	}{
+		{
+			name:             "total tokens still win when both are present",
+			totalTokens:      80,
+			completionTokens: 20,
+			wantSettled:      true,
+			wantQuota:        80,
+		},
+		{
+			name:             "completion tokens trigger recalc when total is zero",
+			totalTokens:      0,
+			completionTokens: 80,
+			wantSettled:      true,
+			wantQuota:        80,
+		},
+		{
+			name:        "neither token count skips recalc",
+			wantSettled: false,
+			wantQuota:   50,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			truncate(t)
+			const userID, tokenID, channelID = 35, 35, 35
+			const initialQuota, preConsumed, tokenRemain = 10_000, 50, 8_000
+			seedUser(t, userID, initialQuota)
+			seedToken(t, tokenID, userID, "sk-completion-fallback", tokenRemain)
+			seedChannel(t, channelID)
+
+			task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+			settled := settleTaskBillingOnComplete(
+				context.Background(),
+				&mockAdaptor{},
+				task,
+				&relaycommon.TaskInfo{
+					Status:           model.TaskStatusSuccess,
+					TotalTokens:      testCase.totalTokens,
+					CompletionTokens: testCase.completionTokens,
+				},
+			)
+
+			assert.Equal(t, testCase.wantSettled, settled)
+			assert.Equal(t, testCase.wantQuota, task.Quota)
+		})
+	}
 }

@@ -2,8 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -19,7 +19,7 @@ import (
 
 // LogTaskConsumption 记录任务消费日志和统计信息（仅记录，不涉及实际扣费）。
 // 实际扣费已由 BillingSession（PreConsumeBilling + SettleBilling）完成。
-func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
+func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model.Task) {
 	tokenName := c.GetString("token_name")
 	logContent := fmt.Sprintf("操作 %s", info.Action)
 	// 支持任务仅按次计费
@@ -27,11 +27,32 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		logContent = fmt.Sprintf("%s，按次计费", logContent)
 	} else if billing_setting.IsPerSecondBilling(info.OriginModelName) {
 		logContent = fmt.Sprintf("%s，按秒计费", logContent)
-		if resolution := formatTaskBillingResolution(info.PriceData.OtherRatios()); resolution != "" {
-			logContent = fmt.Sprintf("%s，计费分辨率：%s", logContent, resolution)
+		if otherRatios := info.PriceData.OtherRatios(); len(otherRatios) > 0 {
+			var contents []string
+			for key, ra := range otherRatios {
+				if 1.0 != ra {
+					contents = append(contents, fmt.Sprintf("%s: %.2f", key, ra))
+				}
+			}
+			if len(contents) > 0 {
+				logContent = fmt.Sprintf("%s，计算参数：%s", logContent, strings.Join(contents, ", "))
+			}
 		}
 	} else {
-		if contents := formatTaskOtherRatios(info.PriceData.OtherRatios()); len(contents) > 0 {
+		var contents []string
+		if otherRatios := info.PriceData.OtherRatios(); len(otherRatios) > 0 {
+			for key, ra := range otherRatios {
+				if 1.0 != ra {
+					contents = append(contents, fmt.Sprintf("%s: %.2f", key, ra))
+				}
+			}
+		}
+		if snap := info.TieredBillingSnapshot; snap != nil {
+			for key, value := range snap.UsageFacts {
+				contents = append(contents, fmt.Sprintf("%s: %v", key, value))
+			}
+		}
+		if len(contents) > 0 {
 			logContent = fmt.Sprintf("%s, 计算参数：%s", logContent, strings.Join(contents, ", "))
 		}
 	}
@@ -45,9 +66,6 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	if info.PriceData.ModelRatio > 0 {
 		other["model_ratio"] = info.PriceData.ModelRatio
 	}
-	for key, ratio := range info.PriceData.OtherRatios() {
-		other[key] = ratio
-	}
 	other["group_ratio"] = info.PriceData.GroupRatioInfo.GroupRatio
 	if info.PriceData.GroupRatioInfo.HasSpecialRatio {
 		other["user_group_ratio"] = info.PriceData.GroupRatioInfo.GroupSpecialRatio
@@ -56,6 +74,15 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		other["is_model_mapped"] = true
 		other["upstream_model_name"] = info.UpstreamModelName
 	}
+	if snap := info.TieredBillingSnapshot; snap != nil {
+		other["billing_mode"] = "tiered_expr"
+		other["expr_b64"] = base64.StdEncoding.EncodeToString([]byte(snap.ExprString))
+		other["matched_tier"] = snap.EstimatedTier
+		if len(snap.UsageFacts) > 0 {
+			other["usage_facts"] = snap.UsageFacts
+		}
+	}
+	appendTaskLogInfo(task, other)
 	attachQuotaSaturation(c, info, other)
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 		ChannelId: info.ChannelId,
@@ -69,34 +96,6 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	})
 	model.UpdateUserUsedQuotaAndRequestCount(info.UserId, info.PriceData.Quota)
 	model.UpdateChannelUsedQuota(info.ChannelId, info.PriceData.Quota)
-}
-
-func formatTaskBillingResolution(ratios map[string]float64) string {
-	for key := range ratios {
-		if strings.HasPrefix(key, "resolution-") {
-			return strings.TrimPrefix(key, "resolution-")
-		}
-	}
-	return ""
-}
-
-func formatTaskOtherRatios(ratios map[string]float64) []string {
-	if len(ratios) == 0 {
-		return nil
-	}
-	keys := make([]string, 0, len(ratios))
-	for key, ratio := range ratios {
-		if ratio == 1.0 {
-			continue
-		}
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	contents := make([]string, 0, len(keys))
-	for _, key := range keys {
-		contents = append(contents, fmt.Sprintf("%s: %.2f", key, ratios[key]))
-	}
-	return contents
 }
 
 // ---------------------------------------------------------------------------
@@ -128,13 +127,6 @@ func taskAdjustFunding(task *model.Task, delta int) error {
 		return model.DecreaseUserQuota(task.UserId, delta, false)
 	}
 	return model.IncreaseUserQuota(task.UserId, -delta, false)
-}
-
-func taskMatureAffiliateRebate(task *model.Task, quota int) {
-	if task == nil || quota <= 0 || task.PrivateData.BillingSource == BillingSourceSubscription {
-		return
-	}
-	ConsumeAffiliateRebateMaturity(task.UserId, quota)
 }
 
 // taskAdjustTokenQuota 调整任务的令牌额度，delta > 0 表示扣费，delta < 0 表示退还。
@@ -175,13 +167,48 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 				other[k] = v
 			}
 		}
+		if snap := bc.TieredSnapshot; snap != nil {
+			other["billing_mode"] = "tiered_expr"
+			other["expr_b64"] = base64.StdEncoding.EncodeToString([]byte(snap.ExprString))
+			other["matched_tier"] = snap.EstimatedTier
+			if len(snap.UsageFacts) > 0 {
+				other["usage_facts"] = snap.UsageFacts
+			}
+		}
 	}
 	props := task.Properties
 	if props.UpstreamModelName != "" && props.UpstreamModelName != props.OriginModelName {
 		other["is_model_mapped"] = true
 		other["upstream_model_name"] = props.UpstreamModelName
 	}
+	appendTaskLogInfo(task, other)
 	return other
+}
+
+func appendTaskLogInfo(task *model.Task, other map[string]interface{}) {
+	if task == nil || other == nil {
+		return
+	}
+	if task.TaskID != "" {
+		other["task_id"] = task.TaskID
+	}
+	if task.PrivateData.Execution != nil {
+		AppendTaskPluginAuditInfo(other, task.PrivateData.Execution.TaskPlugin)
+	}
+	if task.PrivateData.UpstreamTaskID == "" && task.PrivateData.NodeName == "" {
+		return
+	}
+	rootInfo, ok := other["root_info"].(map[string]interface{})
+	if !ok || rootInfo == nil {
+		rootInfo = map[string]interface{}{}
+		other["root_info"] = rootInfo
+	}
+	if task.PrivateData.UpstreamTaskID != "" {
+		rootInfo["upstream_task_id"] = task.PrivateData.UpstreamTaskID
+	}
+	if task.PrivateData.NodeName != "" {
+		rootInfo["node_name"] = task.PrivateData.NodeName
+	}
 }
 
 func taskBillingContextPriceData(bc *model.TaskBillingContext) *types.PriceData {
@@ -254,9 +281,9 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 // actualQuota 是任务完成后的实际应扣额度，与预扣额度 (task.Quota) 做差额结算。
 // reason 用于日志记录（例如 "token重算" 或 "adaptor调整"）。
 // clamps 可选：若计算 actualQuota 时发生额度饱和，将其记入日志 admin_info（仅管理员可见）。
-func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, clamps ...*common.QuotaClamp) bool {
-	if actualQuota <= 0 {
-		return false
+func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, clamps ...*common.QuotaClamp) {
+	if actualQuota < 0 {
+		return
 	}
 	preConsumedQuota := task.Quota
 	quotaDelta := actualQuota - preConsumedQuota
@@ -264,8 +291,7 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	if quotaDelta == 0 {
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 预扣费准确（%s，%s）",
 			task.TaskID, logger.LogQuota(actualQuota), reason))
-		taskMatureAffiliateRebate(task, actualQuota)
-		return true
+		return
 	}
 
 	logger.LogInfo(ctx, fmt.Sprintf("任务 %s 差额结算：delta=%s（实际：%s，预扣：%s，%s）",
@@ -279,9 +305,8 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	// 调整资金来源
 	if err := taskAdjustFunding(task, quotaDelta); err != nil {
 		logger.LogError(ctx, fmt.Sprintf("差额结算资金调整失败 task %s: %s", task.TaskID, err.Error()))
-		return false
+		return
 	}
-	taskMatureAffiliateRebate(task, actualQuota)
 
 	// 调整令牌额度
 	taskAdjustTokenQuota(ctx, task, quotaDelta)
@@ -303,8 +328,6 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	} else {
 		logType = model.LogTypeRefund
 		logQuota = -quotaDelta
-		model.UpdateUserUsedQuota(task.UserId, quotaDelta)
-		model.UpdateChannelUsedQuota(task.ChannelId, quotaDelta)
 	}
 	other := taskBillingOther(task)
 	other["task_id"] = task.TaskID
@@ -325,7 +348,6 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		Other:     other,
 		NodeName:  task.PrivateData.NodeName,
 	})
-	return true
 }
 
 // RecalculateTaskQuotaByTokens 根据实际 token 消耗重新计费（异步差额结算）。
@@ -377,5 +399,6 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 	actualQuota, clamp := common.QuotaFromFloatChecked(float64(totalTokens) * modelRatio * finalGroupRatio * otherMultiplier)
 
 	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, modelRatio, finalGroupRatio, otherMultiplier)
-	return RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
+	RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
+	return true
 }

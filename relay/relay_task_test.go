@@ -1,34 +1,143 @@
 package relay
 
 import (
-	"bytes"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
-	"github.com/QuantumNous/new-api/setting/ratio_setting"
-	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-type testBillingSession struct{}
+func TestTaskModel2DtoNormalizesLegacyAction(t *testing.T) {
+	task := &model.Task{Action: "firstTailGenerate"}
 
-func (testBillingSession) Settle(int) error         { return nil }
-func (testBillingSession) Refund(*gin.Context)      {}
-func (testBillingSession) NeedsRefund() bool        { return false }
-func (testBillingSession) GetPreConsumedQuota() int { return 0 }
-func (testBillingSession) Reserve(int) error        { return nil }
+	dtoTask := TaskModel2Dto(task)
 
-func withRelayBillingConfig(t *testing.T, values map[string]string) {
+	assert.Equal(t, constant.TaskActionFirstTailToVideo, dtoTask.Action)
+	assert.Equal(t, "firstTailGenerate", task.Action)
+}
+
+const mappingOrderSubmitPlugin = `
+export const meta = {apiVersion:1,key:"maporder",name:"Map Order",version:"1.0.0",author:{name:"Test"},models:["declared-model"],fetchMode:"per_task"};
+export function buildSubmitRequest(ctx) {
+  return {url: ctx.baseUrl+"/submit", method:"POST", body:{upstreamModel: ctx.upstreamModel, model: ctx.model}, action:"text_to_video"};
+}
+export function parseSubmitResponse(){return {taskId:"1"};}
+export function buildQueryRequest(){return {url:"https://provider.example"};}
+export function parseTaskResult(){return {status:"SUCCESS"};}
+`
+
+const mappingOrderRewritePlugin = `
+export const meta = {apiVersion:1,key:"maporder-rw",name:"Map Order RW",version:"1.0.0",author:{name:"Test"},models:["declared-model"],fetchMode:"per_task"};
+export function buildSubmitRequest(ctx) {
+  return {url: ctx.baseUrl+"/submit", method:"POST", body:{upstreamModel: ctx.upstreamModel}, rewriteModel:"rewritten"};
+}
+export function parseSubmitResponse(){return {taskId:"1"};}
+export function buildQueryRequest(){return {url:"https://provider.example"};}
+export function parseTaskResult(){return {status:"SUCCESS"};}
+`
+
+func pinMappingOrderPlugin(t *testing.T, c *gin.Context, source string) {
+	t.Helper()
+	plugin, err := pluginruntime.NewRegistry().Register(source, pluginruntime.Options{})
+	require.NoError(t, err)
+	c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{Plugin: plugin})
+}
+
+func newTaskSubmitContext(t *testing.T, originalModel, mapping string) (*gin.Context, *relaycommon.RelayInfo) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
+	common.SetContextKey(c, constant.ContextKeyOriginalModel, originalModel)
+	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, "https://provider.example")
+	if mapping != "" {
+		c.Set("model_mapping", mapping)
+	}
+	c.Set("task_request", map[string]any{"prompt": "p"})
+	return c, &relaycommon.RelayInfo{TaskRelayInfo: &relaycommon.TaskRelayInfo{}}
+}
+
+func TestRelayTaskSubmitMapsBeforeValidateWhenOriginSet(t *testing.T) {
+	const mapping = `{"alias-model":"mid-model","mid-model":"declared-model"}`
+
+	c, info := newTaskSubmitContext(t, "alias-model", mapping)
+	pinMappingOrderPlugin(t, c, mappingOrderSubmitPlugin)
+	info.OriginModelName = "alias-model"
+
+	_, taskErr := RelayTaskSubmit(c, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "model_price_error", taskErr.Code)
+	assert.Equal(t, "alias-model", info.OriginModelName)
+	assert.Equal(t, "declared-model", info.UpstreamModelName)
+	assert.True(t, info.IsModelMapped)
+}
+
+func TestRelayTaskSubmitDeclaredNameWithoutMappingIsUnchanged(t *testing.T) {
+	c, info := newTaskSubmitContext(t, "declared-model", "")
+	pinMappingOrderPlugin(t, c, mappingOrderSubmitPlugin)
+	info.OriginModelName = "declared-model"
+
+	_, taskErr := RelayTaskSubmit(c, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "model_price_error", taskErr.Code)
+	assert.Equal(t, "declared-model", info.OriginModelName)
+	assert.Equal(t, "declared-model", info.UpstreamModelName)
+	assert.False(t, info.IsModelMapped)
+}
+
+func TestRelayTaskSubmitDoesNotApplyMappingTwice(t *testing.T) {
+	c, info := newTaskSubmitContext(t, "alias-model", `{"alias-model":"declared-model"}`)
+	pinMappingOrderPlugin(t, c, mappingOrderRewritePlugin)
+	info.OriginModelName = "alias-model"
+
+	_, taskErr := RelayTaskSubmit(c, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "model_price_error", taskErr.Code)
+	assert.Equal(t, "rewritten", info.UpstreamModelName, "late mapping would overwrite rewriteModel with the chain tail")
+	assert.Equal(t, "alias-model", info.OriginModelName)
+}
+
+func TestRelayTaskSubmitEmptyOriginKeepsLateMapping(t *testing.T) {
+	plugin, err := pluginruntime.NewRegistry().Register(mappingOrderSubmitPlugin, pluginruntime.Options{})
+	require.NoError(t, err)
+	synthesized := service.CoverTaskActionToModelName(constant.TaskPlatform(plugin.Meta.Key), "text_to_video")
+	c, info := newTaskSubmitContext(t, "pre-validate-upstream",
+		`{"pre-validate-upstream":"should-not-apply-early","`+synthesized+`":"legacy-tail"}`)
+	c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{Plugin: plugin})
+	info.OriginModelName = ""
+
+	_, taskErr := RelayTaskSubmit(c, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "model_price_error", taskErr.Code)
+	assert.Equal(t, synthesized, info.OriginModelName)
+	assert.Equal(t, "legacy-tail", info.UpstreamModelName)
+	assert.True(t, info.IsModelMapped)
+}
+
+const billingFallbackPlugin = `
+export const meta = {apiVersion:1,key:"bill-fallback",name:"Bill Fallback",version:"1.0.0",author:{name:"Test"},models:["declared-model"],fetchMode:"per_task"};
+export function buildSubmitRequest(ctx) {
+  return {url: ctx.baseUrl+"/submit", method:"POST", body:{upstreamModel: ctx.upstreamModel, model: ctx.model}, action:"text_to_video"};
+}
+export function parseSubmitResponse(){return {taskId:"1"};}
+export function buildQueryRequest(){return {url:"https://provider.example"};}
+export function parseTaskResult(){return {status:"SUCCESS"};}
+`
+
+func saveBillingConfig(t *testing.T) {
 	t.Helper()
 	saved := map[string]string{}
 	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
@@ -38,245 +147,86 @@ func withRelayBillingConfig(t *testing.T, values map[string]string) {
 	t.Cleanup(func() {
 		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
 	})
-	require.NoError(t, config.GlobalConfig.LoadFromDB(values))
 }
 
-func testPriceDataWithOtherRatios(ratios map[string]float64) types.PriceData {
-	priceData := types.PriceData{}
-	for key, ratio := range ratios {
-		priceData.AddOtherRatio(key, ratio)
+func TestRelayTaskSubmitAliasBillingIdentityAndExprFallback(t *testing.T) {
+	const mapping = `{"alias-model":"declared-model"}`
+	const aliasExpr = `tier("alias", 2)`
+	const tailExpr = `tier("tail", 3)`
+
+	tests := []struct {
+		name       string
+		modes      map[string]string
+		exprs      map[string]string
+		wantTiered bool
+		wantExpr   string
+	}{
+		{
+			name:       "alias own tiered wins",
+			modes:      map[string]string{"alias-model": "tiered_expr", "declared-model": "tiered_expr"},
+			exprs:      map[string]string{"alias-model": aliasExpr, "declared-model": tailExpr},
+			wantTiered: true,
+			wantExpr:   aliasExpr,
+		},
+		{
+			name:       "fallback uses tail expr",
+			modes:      map[string]string{"declared-model": "tiered_expr"},
+			exprs:      map[string]string{"declared-model": tailExpr},
+			wantTiered: true,
+			wantExpr:   tailExpr,
+		},
+		{
+			name:       "neither tiered uses ordinary pricing",
+			wantTiered: false,
+		},
 	}
-	return priceData
-}
-
-func TestRelayTaskSubmitJimengUsesMappedReqKeyAndMetadataPrompt(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	service.InitHttpClient()
-
-	savedModelPrice := ratio_setting.ModelPrice2JSONString()
-	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"alias-jimeng":0.001}`))
-	t.Cleanup(func() {
-		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(savedModelPrice))
-	})
-
-	withRelayBillingConfig(t, map[string]string{
-		"billing_setting.billing_mode": `{"alias-jimeng":"per_second"}`,
-	})
-
-	var upstreamBody []byte
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/jimeng/", r.URL.Path)
-		require.Equal(t, "CVSync2AsyncSubmitTask", r.URL.Query().Get("Action"))
-		require.Equal(t, "Bearer sk-jimeng", r.Header.Get("Authorization"))
-		var err error
-		upstreamBody, err = io.ReadAll(r.Body)
-		require.NoError(t, err)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"code":10000,"message":"Success","request_id":"req_1","data":{"task_id":"task_upstream"}}`))
-	}))
-	t.Cleanup(upstream.Close)
-
-	body := `{"model":"alias-jimeng","prompt":"outer ignored","duration":5,"metadata":{"prompt":"real prompt","seed":-1,"aspect_ratio":"16:9","frames":999}}`
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", bytes.NewBufferString(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set("model_mapping", `{"alias-jimeng":"jimeng_t2v_v30"}`)
-	common.SetContextKey(c, constant.ContextKeyChannelType, constant.ChannelTypeJimeng)
-	common.SetContextKey(c, constant.ContextKeyChannelId, 999)
-	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, upstream.URL)
-	common.SetContextKey(c, constant.ContextKeyChannelKey, "sk-jimeng")
-	common.SetContextKey(c, constant.ContextKeyOriginalModel, "alias-jimeng")
-	common.SetContextKey(c, constant.ContextKeyUserId, 1)
-	common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
-	common.SetContextKey(c, constant.ContextKeyUsingGroup, "default")
-	common.SetContextKey(c, constant.ContextKeyUserQuota, 1000000)
-	common.SetContextKey(c, constant.ContextKeyTokenId, 1)
-	common.SetContextKey(c, constant.ContextKeyTokenKey, "jimeng-billing-token")
-
-	info, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
-	require.NoError(t, err)
-	info.Billing = testBillingSession{}
-	result, taskErr := RelayTaskSubmit(c, info)
-	require.Nil(t, taskErr)
-	require.NotNil(t, result)
-
-	var payload map[string]any
-	require.NoError(t, common.Unmarshal(upstreamBody, &payload))
-	require.Equal(t, "jimeng_t2v_v30", payload["req_key"])
-	require.Equal(t, "real prompt", payload["prompt"])
-	require.Equal(t, float64(121), payload["frames"])
-	require.Equal(t, float64(-1), payload["seed"])
-	require.Equal(t, "16:9", payload["aspect_ratio"])
-	require.NotContains(t, string(upstreamBody), "outer ignored")
-	require.NotContains(t, string(upstreamBody), "alias-jimeng")
-	require.Contains(t, string(result.TaskData), `"req_key":"jimeng_t2v_v30"`)
-}
-
-func TestApplyConfiguredPerSecondMultipliersOverridesRequestFactors(t *testing.T) {
-	withRelayBillingConfig(t, map[string]string{
-		"billing_setting.billing_mode": `{"video-model":"per_second","ratio-model":"ratio"}`,
-		"billing_setting.per_second_multipliers": `{
-			"video-model":{
-				"resolution-1080P":1.777778,
-				"audio":2
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			saveBillingConfig(t)
+			if len(testCase.modes) > 0 {
+				modeJSON, marshalErr := common.Marshal(testCase.modes)
+				require.NoError(t, marshalErr)
+				exprJSON, marshalErr := common.Marshal(testCase.exprs)
+				require.NoError(t, marshalErr)
+				require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+					"billing_setting.billing_mode": string(modeJSON),
+					"billing_setting.billing_expr": string(exprJSON),
+				}))
+				if testCase.wantExpr == aliasExpr {
+					require.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingMode("alias-model"))
+				} else {
+					require.Equal(t, billing_setting.BillingModeRatio, billing_setting.GetBillingMode("alias-model"))
+					require.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingMode("declared-model"))
+				}
 			}
-		}`,
-	})
 
-	info := &relaycommon.RelayInfo{
-		OriginModelName: "video-model",
-		PriceData: testPriceDataWithOtherRatios(map[string]float64{
-			"seconds":          5,
-			"resolution-1080P": 1,
-			"audio":            1.2,
-		}),
-	}
+			c, info := newTaskSubmitContext(t, "alias-model", mapping)
+			c.Set("group", "default")
+			info.UserGroup = "default"
+			info.UsingGroup = "default"
+			pinMappingOrderPlugin(t, c, billingFallbackPlugin)
+			info.OriginModelName = "alias-model"
 
-	applyConfiguredPerSecondMultipliers(info)
+			_, taskErr := RelayTaskSubmit(c, info)
+			require.NotNil(t, taskErr)
+			assert.Equal(t, "alias-model", info.OriginModelName)
+			assert.Equal(t, "declared-model", info.UpstreamModelName)
+			assert.True(t, info.IsModelMapped)
 
-	otherRatios := info.PriceData.OtherRatios()
-	require.Equal(t, 5.0, otherRatios["seconds"])
-	require.Equal(t, 1.777778, otherRatios["resolution-1080P"])
-	require.Equal(t, 2.0, otherRatios["audio"])
+			task := model.InitTask(constant.TaskPlatform("bill-fallback"), info)
+			assert.Equal(t, "alias-model", task.Properties.OriginModelName)
+			assert.Equal(t, "declared-model", task.Properties.UpstreamModelName)
 
-	ratioInfo := &relaycommon.RelayInfo{
-		OriginModelName: "ratio-model",
-		PriceData:       testPriceDataWithOtherRatios(map[string]float64{"resolution-1080P": 1}),
-	}
-
-	applyConfiguredPerSecondMultipliers(ratioInfo)
-
-	require.Equal(t, 1.0, ratioInfo.PriceData.OtherRatios()["resolution-1080P"])
-}
-
-func TestRelayTaskSubmitHappyHorsePerSecondBillingAppliesToQuotaAndHeader(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	service.InitHttpClient()
-
-	savedModelPrice := ratio_setting.ModelPrice2JSONString()
-	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"happyhorse-1.0-t2v":0.001}`))
-	t.Cleanup(func() {
-		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(savedModelPrice))
-	})
-
-	withRelayBillingConfig(t, map[string]string{
-		"billing_setting.billing_mode": `{"happyhorse-1.0-t2v":"per_second"}`,
-		"billing_setting.per_second_multipliers": `{
-			"happyhorse-1.0-t2v":{"resolution-1080P":2}
-		}`,
-	})
-
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/v1/services/aigc/video-generation/video-synthesis", r.URL.Path)
-		require.Equal(t, "Bearer sk-happyhorse", r.Header.Get("Authorization"))
-		require.Equal(t, "enable", r.Header.Get("X-DashScope-Async"))
-		require.Equal(t, "enable", r.Header.Get("X-DashScope-OssResourceResolve"))
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"request_id":"req_1","output":{"task_id":"task_upstream","task_status":"PENDING"}}`))
-	}))
-	t.Cleanup(upstream.Close)
-
-	body := `{"model":"happyhorse-1.0-t2v","prompt":"horse","duration":6,"size":"1080p"}`
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", bytes.NewBufferString(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	common.SetContextKey(c, constant.ContextKeyChannelType, constant.ChannelTypeHappyHorse)
-	common.SetContextKey(c, constant.ContextKeyChannelId, 998)
-	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, upstream.URL)
-	common.SetContextKey(c, constant.ContextKeyChannelKey, "sk-happyhorse")
-	common.SetContextKey(c, constant.ContextKeyOriginalModel, "happyhorse-1.0-t2v")
-	common.SetContextKey(c, constant.ContextKeyUserId, 1)
-	common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
-	common.SetContextKey(c, constant.ContextKeyUsingGroup, "default")
-	common.SetContextKey(c, constant.ContextKeyUserQuota, 1000000)
-	common.SetContextKey(c, constant.ContextKeyTokenId, 1)
-	common.SetContextKey(c, constant.ContextKeyTokenKey, "happyhorse-billing-token")
-
-	info, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
-	require.NoError(t, err)
-	info.Billing = testBillingSession{}
-	result, taskErr := RelayTaskSubmit(c, info)
-	require.Nil(t, taskErr)
-	require.NotNil(t, result)
-
-	require.Equal(t, 6000, result.Quota)
-	require.Equal(t, map[string]float64{
-		"seconds":          6,
-		"resolution-1080P": 2,
-	}, info.PriceData.OtherRatios())
-
-	var headerRatios map[string]float64
-	require.NoError(t, common.Unmarshal([]byte(recorder.Header().Get("X-New-Api-Other-Ratios")), &headerRatios))
-	require.Equal(t, info.PriceData.OtherRatios(), headerRatios)
-
-	var openAIVideo dto.OpenAIVideo
-	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &openAIVideo))
-	require.Equal(t, "happyhorse-1.0-t2v", openAIVideo.Model)
-	require.Equal(t, dto.VideoStatusQueued, openAIVideo.Status)
-}
-
-func TestRelayTaskSubmitNewApiVideoUsesLocalRequestRatiosForQuota(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	service.InitHttpClient()
-
-	savedModelPrice := ratio_setting.ModelPrice2JSONString()
-	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"happyhorse-1.0-t2v":0.001}`))
-	t.Cleanup(func() {
-		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(savedModelPrice))
-	})
-
-	withRelayBillingConfig(t, map[string]string{
-		"billing_setting.billing_mode": `{"happyhorse-1.0-t2v":"per_second"}`,
-	})
-
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/v1/video/generations", r.URL.Path)
-		require.Equal(t, "Bearer sk-newapi", r.Header.Get("Authorization"))
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("X-New-Api-Other-Ratios", `{"seconds":9,"resolution-1080P":2}`)
-		data, err := common.Marshal(dto.TaskResponse[any]{
-			Code: "success",
-			Data: map[string]any{
-				"task_id":  "task_upstream",
-				"status":   string(model.TaskStatusSubmitted),
-				"progress": "10%",
-			},
+			if testCase.wantTiered {
+				require.NotNil(t, info.TieredBillingSnapshot)
+				assert.Equal(t, "alias-model", info.TieredBillingSnapshot.ModelName)
+				assert.Equal(t, testCase.wantExpr, info.TieredBillingSnapshot.ExprString)
+				assert.Equal(t, billingexpr.ExprHashString(testCase.wantExpr), info.TieredBillingSnapshot.ExprHash)
+				assert.NotEqual(t, "model_price_error", taskErr.Code)
+			} else {
+				assert.Nil(t, info.TieredBillingSnapshot)
+				assert.Equal(t, "model_price_error", taskErr.Code)
+			}
 		})
-		require.NoError(t, err)
-		_, _ = w.Write(data)
-	}))
-	t.Cleanup(upstream.Close)
-
-	body := `{"model":"happyhorse-1.0-t2v","prompt":"horse","duration":5,"resolution":"720P"}`
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", bytes.NewBufferString(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	common.SetContextKey(c, constant.ContextKeyChannelType, constant.ChannelTypeNewApiVideo)
-	common.SetContextKey(c, constant.ContextKeyChannelId, 997)
-	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, upstream.URL)
-	common.SetContextKey(c, constant.ContextKeyChannelKey, "sk-newapi")
-	common.SetContextKey(c, constant.ContextKeyOriginalModel, "happyhorse-1.0-t2v")
-	common.SetContextKey(c, constant.ContextKeyUserId, 1)
-	common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
-	common.SetContextKey(c, constant.ContextKeyUsingGroup, "default")
-	common.SetContextKey(c, constant.ContextKeyUserQuota, 1000000)
-	common.SetContextKey(c, constant.ContextKeyTokenId, 1)
-	common.SetContextKey(c, constant.ContextKeyTokenKey, "newapi-video-billing-token")
-
-	info, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
-	require.NoError(t, err)
-	info.Billing = testBillingSession{}
-	result, taskErr := RelayTaskSubmit(c, info)
-	require.Nil(t, taskErr)
-	require.NotNil(t, result)
-
-	require.Equal(t, 2500, result.Quota)
-	require.Equal(t, map[string]float64{
-		"seconds":         5,
-		"resolution-720P": 1,
-	}, info.PriceData.OtherRatios())
-	require.JSONEq(t, `{"seconds":5,"resolution-720P":1}`, recorder.Header().Get("X-New-Api-Other-Ratios"))
+	}
 }
