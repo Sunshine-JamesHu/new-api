@@ -1,68 +1,105 @@
 package billing_setting
 
 import (
+	"fmt"
 	"testing"
 
-	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func withBillingConfig(t *testing.T, values map[string]string) {
-	t.Helper()
-	saved := map[string]string{}
-	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
-		saved[key] = value
-		return nil
-	}))
-	t.Cleanup(func() {
-		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
-	})
-	require.NoError(t, config.GlobalConfig.LoadFromDB(values))
-}
+func TestSmokeTestTaskExprValidatesDeclaredUsageVectors(t *testing.T) {
+	videoSchema := map[string]jsplugin.UsageFieldSchema{
+		"seconds": {Type: "number", Unit: "second"},
+		"mode":    {Enum: []string{"std", "pro"}},
+		"quality": {Enum: []string{"sd", "hd"}},
+	}
 
-func TestPerSecondBillingMode(t *testing.T) {
-	withBillingConfig(t, map[string]string{
-		"billing_setting.billing_mode": `{"video-model":"per_second","expr-model":"tiered_expr"}`,
-	})
+	tests := []struct {
+		name          string
+		schema        map[string]jsplugin.UsageFieldSchema
+		expression    string
+		expectedError string
+	}{
+		{
+			name:       "declared numeric and enum facts",
+			schema:     videoSchema,
+			expression: `u("mode") == "pro" ? tier("pro", u("seconds") * 0.8) : tier("std", u("seconds") * 0.4)`,
+		},
+		{
+			name:          "undeclared literal key",
+			schema:        videoSchema,
+			expression:    `tier("base", u("clips") * 0.1)`,
+			expectedError: `usage key "clips" is not declared`,
+		},
+		{
+			name:          "negative duration boundary",
+			schema:        videoSchema,
+			expression:    fmt.Sprintf(`u("seconds") == %d ? -1 : 0`, relaycommon.MaxTaskDurationSeconds),
+			expectedError: "result must be finite and non-negative",
+		},
+		{
+			name:          "negative count boundary",
+			schema:        map[string]jsplugin.UsageFieldSchema{"clips": {Type: "number", Unit: "count"}},
+			expression:    fmt.Sprintf(`u("clips") == %d ? -1 : 0`, dto.MaxImageN),
+			expectedError: "result must be finite and non-negative",
+		},
+		{
+			name:          "negative token boundary",
+			schema:        map[string]jsplugin.UsageFieldSchema{"tokens": {Type: "number", Unit: "token"}},
+			expression:    fmt.Sprintf(`u("tokens") == %d ? -1 : 0`, common.MaxQuota),
+			expectedError: "result must be finite and non-negative",
+		},
+		{
+			name:          "negative credit boundary",
+			schema:        map[string]jsplugin.UsageFieldSchema{"units": {Type: "number", Unit: "credit"}},
+			expression:    fmt.Sprintf(`u("units") == %d ? -1 : 0`, common.MaxQuota),
+			expectedError: "result must be finite and non-negative",
+		},
+		{
+			name:          "negative enum combination",
+			schema:        videoSchema,
+			expression:    `u("mode") == "pro" && u("quality") == "hd" ? -1 : 0`,
+			expectedError: "result must be finite and non-negative",
+		},
+	}
 
-	require.Equal(t, BillingModePerSecond, GetBillingMode("video-model"))
-	require.True(t, IsPerSecondBilling("video-model"))
-	require.False(t, IsPerSecondBilling("expr-model"))
-	require.Equal(t, BillingModeRatio, GetBillingMode("missing-model"))
-}
-
-func TestGetBillingModeCopyIncludesPerSecond(t *testing.T) {
-	withBillingConfig(t, map[string]string{
-		"billing_setting.billing_mode": `{"video-model":"per_second"}`,
-	})
-
-	copied := GetBillingModeCopy()
-	require.Equal(t, BillingModePerSecond, copied["video-model"])
-
-	copied["video-model"] = BillingModeRatio
-	require.Equal(t, BillingModePerSecond, GetBillingMode("video-model"))
-}
-
-func TestPerSecondMultipliers(t *testing.T) {
-	withBillingConfig(t, map[string]string{
-		"billing_setting.per_second_multipliers": `{
-			"video-model":{
-				"resolution-720P":1,
-				"resolution-1080P":1.777778,
-				"zero":0,
-				"negative":-1
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := SmokeTestTaskExpr(testCase.expression, testCase.schema)
+			if testCase.expectedError == "" {
+				require.NoError(t, err)
+				return
 			}
-		}`,
-	})
+			require.ErrorContains(t, err, testCase.expectedError)
+		})
+	}
+}
 
-	multipliers := GetPerSecondMultipliers("video-model")
-	require.Equal(t, 1.0, multipliers["resolution-720P"])
-	require.Equal(t, 1.777778, multipliers["resolution-1080P"])
-	require.NotContains(t, multipliers, "zero")
-	require.NotContains(t, multipliers, "negative")
+func TestSmokeTestTaskExprCapsOversizedEnumProductsAtLastCombination(t *testing.T) {
+	schema := make(map[string]jsplugin.UsageFieldSchema, 7)
+	condition := ""
+	for index := 0; index < 7; index++ {
+		schema[fmt.Sprintf("enum_%d", index)] = jsplugin.UsageFieldSchema{Enum: []string{"first", "middle", "last"}}
+		if condition != "" {
+			condition += " && "
+		}
+		condition += fmt.Sprintf(`u("enum_%d") == "last"`, index)
+	}
 
-	multipliers["resolution-720P"] = 9
-	value, ok := GetPerSecondMultiplier("video-model", "resolution-720P")
-	require.True(t, ok)
-	require.Equal(t, 1.0, value)
+	err := SmokeTestTaskExpr(condition+" ? -1 : 0", schema)
+	require.ErrorContains(t, err, "result must be finite and non-negative")
+}
+
+func TestSmokeTestExprRejectsTaskUsageWithoutSchema(t *testing.T) {
+	err := SmokeTestExpr(`u("mode") == "std" ? 1 : 2`)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "mode")
+	assert.ErrorContains(t, err, "no task plugin usage schema")
+
+	require.NoError(t, SmokeTestExpr(`tier("base", p * 2 + c * 8)`))
 }
