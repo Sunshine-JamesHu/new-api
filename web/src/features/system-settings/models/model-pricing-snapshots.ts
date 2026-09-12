@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { splitBillingExprAndRequestRules } from '@/features/pricing/lib/billing-expr'
+import { splitPluginBillingExprKey } from '@/features/pricing/lib/plugin-pricing'
 
 import { safeJsonParse } from '../utils/json-parser'
 import { formatPricingNumber } from './pricing-format'
@@ -32,10 +33,11 @@ export type ModelPricingSnapshotInput = {
   audioCompletionRatio: string
   billingMode: string
   billingExpr: string
-  perSecondMultipliers: string
+  pluginBillingExpr?: string
 }
 
 export type ModelPricingSnapshot = {
+  pluginBillingExpr?: Record<string, string>
   name: string
   price?: string
   ratio?: string
@@ -48,7 +50,6 @@ export type ModelPricingSnapshot = {
   billingMode?: string
   billingExpr?: string
   requestRuleExpr?: string
-  perSecondMultipliers?: Record<string, number>
   hasConflict: boolean
 }
 
@@ -83,17 +84,15 @@ const ratioToPrice = (ratio?: string, denominator?: string) => {
 }
 
 export const getModeLabel = (mode?: string) => {
-  if (mode === 'per-request') return 'Per-request'
-  if (mode === 'per_second') return 'Per-second'
+  if (mode === 'per-request') return 'Per-request (deprecated)'
   if (mode === 'tiered_expr') return 'Expression'
-  return 'Per-token'
+  return 'Per-token (deprecated)'
 }
 
 export const getModeVariant = (
   mode?: string
-): 'warning' | 'info' | 'success' | 'cyan' => {
+): 'warning' | 'info' | 'success' => {
   if (mode === 'per-request') return 'warning'
-  if (mode === 'per_second') return 'cyan'
   if (mode === 'tiered_expr') return 'info'
   return 'success'
 }
@@ -119,25 +118,11 @@ export const getPriceSummary = (
   if (row.billingMode === 'per-request') {
     return row.price ? `$${row.price} / ${t('request')}` : t('Unset price')
   }
-  if (row.billingMode === 'per_second') {
-    return row.price ? `$${row.price} / ${t('second')}` : t('Unset price')
-  }
 
   const inputPrice = ratioToPrice(row.ratio)
   if (!inputPrice) return t('Unset price')
 
-  const extraCount = [
-    row.completionRatio,
-    row.cacheRatio,
-    row.createCacheRatio,
-    row.imageRatio,
-    row.audioRatio,
-    row.audioCompletionRatio,
-  ].filter(hasPricingValue).length
-
-  return extraCount > 0
-    ? `${t('Input')} $${inputPrice} · ${extraCount} ${t('extras')}`
-    : `${t('Input')} $${inputPrice}`
+  return `${t('Input')} $${inputPrice}`
 }
 
 export const getPriceDetail = (
@@ -151,9 +136,6 @@ export const getPriceDetail = (
   }
   if (row.billingMode === 'per-request') {
     return t('Fixed request price')
-  }
-  if (row.billingMode === 'per_second') {
-    return t('Fixed second price')
   }
 
   const inputPrice = ratioToPrice(row.ratio)
@@ -184,7 +166,7 @@ export const buildModelSnapshots = ({
   audioCompletionRatio,
   billingMode,
   billingExpr,
-  perSecondMultipliers,
+  pluginBillingExpr = '{}',
 }: ModelPricingSnapshotInput): ModelPricingSnapshot[] => {
   const priceMap = safeJsonParse<Record<string, number>>(modelPrice, {
     fallback: {},
@@ -226,14 +208,23 @@ export const buildModelSnapshots = ({
     fallback: {},
     context: 'billing expression',
   })
-  const perSecondMultipliersMap = safeJsonParse<
-    Record<string, Record<string, number>>
-  >(perSecondMultipliers, {
-    fallback: {},
-    context: 'per-second multipliers',
-  })
 
+  const pluginExprMap = safeJsonParse<Record<string, string>>(
+    pluginBillingExpr,
+    { fallback: {}, context: 'plugin billing expressions' }
+  )
+  const pluginExpressionsByModel = new Map<string, Record<string, string>>()
+  for (const [key, expression] of Object.entries(pluginExprMap)) {
+    const parts = splitPluginBillingExprKey(key)
+    if (!parts) continue
+    const [plugin, model] = parts
+    pluginExpressionsByModel.set(model, {
+      ...pluginExpressionsByModel.get(model),
+      [plugin]: expression,
+    })
+  }
   const modelNames = new Set([
+    ...pluginExpressionsByModel.keys(),
     ...Object.keys(priceMap),
     ...Object.keys(ratioMap),
     ...Object.keys(cacheMap),
@@ -244,10 +235,9 @@ export const buildModelSnapshots = ({
     ...Object.keys(audioCompletionMap),
     ...Object.keys(billingModeMap),
     ...Object.keys(billingExprMap),
-    ...Object.keys(perSecondMultipliersMap),
   ])
 
-  return Array.from(modelNames).map((name) => {
+  return [...modelNames].map((name) => {
     const price = priceMap[name]?.toString() || ''
     const ratio = ratioMap[name]?.toString() || ''
     const cache = cacheMap[name]?.toString() || ''
@@ -258,29 +248,13 @@ export const buildModelSnapshots = ({
     const audioCompletion = audioCompletionMap[name]?.toString() || ''
 
     const modeForModel = billingModeMap[name]
-    if (modeForModel === 'per_second') {
-      return {
-        name,
-        price,
-        ratio,
-        cacheRatio: cache,
-        createCacheRatio: createCache,
-        completionRatio: completion,
-        imageRatio: image,
-        audioRatio: audio,
-        audioCompletionRatio: audioCompletion,
-        billingMode: 'per_second',
-        perSecondMultipliers: perSecondMultipliersMap[name] || {},
-        hasConflict: false,
-      }
-    }
-
     if (modeForModel === 'tiered_expr') {
       const fullExpr = billingExprMap[name] || ''
       const { billingExpr: pureExpr, requestRuleExpr } =
         splitBillingExprAndRequestRules(fullExpr)
       return {
         name,
+        pluginBillingExpr: pluginExpressionsByModel.get(name),
         billingMode: 'tiered_expr',
         billingExpr: pureExpr,
         requestRuleExpr,
@@ -298,6 +272,7 @@ export const buildModelSnapshots = ({
 
     return {
       name,
+      pluginBillingExpr: pluginExpressionsByModel.get(name),
       price,
       ratio,
       cacheRatio: cache,
@@ -334,6 +309,8 @@ export const getSnapshotSignature = (snapshot?: ModelPricingSnapshot) => {
     billingMode: snapshot.billingMode || 'per-token',
     billingExpr: snapshot.billingExpr || '',
     requestRuleExpr: snapshot.requestRuleExpr || '',
-    perSecondMultipliers: snapshot.perSecondMultipliers || {},
+    pluginBillingExpr: Object.entries(snapshot.pluginBillingExpr ?? {}).sort(
+      ([a], [b]) => a.localeCompare(b)
+    ),
   })
 }
