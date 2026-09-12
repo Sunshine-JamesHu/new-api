@@ -22,14 +22,11 @@ import { toast } from 'sonner'
 
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { getSelf } from '@/lib/api'
+import { handleServerError } from '@/lib/handle-server-error'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
-import {
-  getAffiliateCode,
-  getAffiliateRebates,
-  transferAffiliateQuota,
-} from '../api'
+import { getAffiliateCode, transferAffiliateQuota } from '../api'
 import { generateAffiliateLink } from '../lib'
-import type { AffiliateRebateRecord } from '../types'
 
 // ============================================================================
 // Affiliate Hook
@@ -40,15 +37,13 @@ export function useAffiliate() {
   const [affiliateLink, setAffiliateLink] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [transferring, setTransferring] = useState(false)
-  const [rebates, setRebates] = useState<AffiliateRebateRecord[]>([])
-  const [pendingRebateQuota, setPendingRebateQuota] = useState(0)
   const { copyToClipboard } = useCopyToClipboard()
 
   // Fetch affiliate code
   const fetchAffiliateCode = useCallback(async () => {
     try {
       setLoading(true)
-      const response = await getAffiliateCode()
+      const response = requireServerSuccess(await getAffiliateCode())
 
       if (response.success && response.data) {
         setAffiliateCode(response.data)
@@ -56,23 +51,9 @@ export function useAffiliate() {
         setAffiliateLink(link)
       }
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to fetch affiliate code:', error)
+      handleServerError(error)
     } finally {
       setLoading(false)
-    }
-  }, [])
-
-  const fetchAffiliateRebates = useCallback(async () => {
-    try {
-      const response = await getAffiliateRebates(1, 20)
-      if (response.success && response.data) {
-        setRebates(response.data.items || [])
-        setPendingRebateQuota(response.data.pending_quota || 0)
-      }
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to fetch affiliate rebates:', error)
     }
   }, [])
 
@@ -82,46 +63,38 @@ export function useAffiliate() {
   }, [affiliateLink, copyToClipboard])
 
   // Transfer affiliate quota to balance
-  const transferQuota = useCallback(
-    async (quota: number): Promise<boolean> => {
-      try {
-        setTransferring(true)
-        const response = await transferAffiliateQuota({ quota })
+  const transferQuota = useCallback(async (quota: number): Promise<boolean> => {
+    try {
+      setTransferring(true)
+      const response = await transferAffiliateQuota({ quota })
 
-        if (response.success) {
-          toast.success(response.message || i18next.t('Transfer successful'))
-          await getSelf()
-          await fetchAffiliateRebates()
-          return true
-        }
-
-        toast.error(response.message || i18next.t('Transfer failed'))
-        return false
-      } catch {
-        toast.error(i18next.t('Transfer failed'))
-        return false
-      } finally {
-        setTransferring(false)
+      if (response.success) {
+        toast.success(response.message || i18next.t('Transfer successful'))
+        await getSelf()
+        return true
       }
-    },
-    [fetchAffiliateRebates]
-  )
+
+      handleServerError(response, i18next.t('Transfer failed'))
+      return false
+    } catch (_error) {
+      handleServerError(_error, i18next.t('Transfer failed'))
+      return false
+    } finally {
+      setTransferring(false)
+    }
+  }, [])
 
   useEffect(() => {
     fetchAffiliateCode()
-    fetchAffiliateRebates()
-  }, [fetchAffiliateCode, fetchAffiliateRebates])
+  }, [fetchAffiliateCode])
 
   return {
     affiliateCode,
     affiliateLink,
     loading,
     transferring,
-    rebates,
-    pendingRebateQuota,
     copyAffiliateLink,
     transferQuota,
     refetch: fetchAffiliateCode,
-    refetchRebates: fetchAffiliateRebates,
   }
 }

@@ -165,13 +165,12 @@ func validateMultipartTaskRequest(c *gin.Context, info *RelayInfo, action string
 
 	formData := c.Request.PostForm
 	req = TaskSubmitReq{
-		Prompt:     formData.Get("prompt"),
-		Model:      formData.Get("model"),
-		Mode:       formData.Get("mode"),
-		Image:      formData.Get("image"),
-		Size:       formData.Get("size"),
-		Resolution: formData.Get("resolution"),
-		Metadata:   make(map[string]interface{}),
+		Prompt:   formData.Get("prompt"),
+		Model:    formData.Get("model"),
+		Mode:     formData.Get("mode"),
+		Image:    formData.Get("image"),
+		Size:     formData.Get("size"),
+		Metadata: make(map[string]any),
 	}
 
 	if durationStr := formData.Get("seconds"); durationStr != "" {
@@ -208,6 +207,7 @@ func validateMultipartTaskRequest(c *gin.Context, info *RelayInfo, action string
 }
 
 func ValidateMultipartDirect(c *gin.Context, info *RelayInfo) *dto.TaskError {
+	var prompt string
 	var model string
 	var seconds int
 	var size string
@@ -218,6 +218,12 @@ func ValidateMultipartDirect(c *gin.Context, info *RelayInfo) *dto.TaskError {
 		return createTaskError(err, "invalid_json", http.StatusBadRequest, true)
 	}
 
+	prompt = req.Prompt
+	if prompt == "" && req.Input != nil {
+		if inputPrompt, ok := req.Input["prompt"].(string); ok {
+			prompt = inputPrompt
+		}
+	}
 	model = req.Model
 	size = req.Size
 	if req.Seconds != "" {
@@ -243,7 +249,7 @@ func ValidateMultipartDirect(c *gin.Context, info *RelayInfo) *dto.TaskError {
 		hasInputReference = true
 	}
 
-	if taskErr := validatePrompt(req.EffectivePrompt()); taskErr != nil {
+	if taskErr := validatePrompt(prompt); taskErr != nil {
 		return taskErr
 	}
 
@@ -287,7 +293,6 @@ func isKnownTaskField(field string) bool {
 		"image":           true,
 		"images":          true,
 		"size":            true,
-		"resolution":      true,
 		"seconds":         true,
 		"duration":        true,
 		"input_reference": true, // Sora 特有字段
@@ -312,7 +317,7 @@ func ValidateBasicTaskRequest(c *gin.Context, info *RelayInfo, action string) *d
 		return createTaskError(err, "invalid_request", http.StatusBadRequest, true)
 	}
 
-	if taskErr := validatePrompt(req.EffectivePrompt()); taskErr != nil {
+	if taskErr := validatePrompt(req.Prompt); taskErr != nil {
 		return taskErr
 	}
 
@@ -325,31 +330,6 @@ func ValidateBasicTaskRequest(c *gin.Context, info *RelayInfo, action string) *d
 		req.Images = []string{req.Image}
 	}
 
-	storeTaskRequest(c, info, action, req)
-	return nil
-}
-
-func ValidateMetadataPassthroughTaskRequest(c *gin.Context, info *RelayInfo, action string) *dto.TaskError {
-	var err error
-	contentType := c.GetHeader("Content-Type")
-	var req TaskSubmitReq
-	if strings.HasPrefix(contentType, "multipart/form-data") {
-		req, err = validateMultipartTaskRequest(c, info, action)
-		if err != nil {
-			return createTaskError(err, "invalid_multipart_form", http.StatusBadRequest, true)
-		}
-		storeTaskRequest(c, info, action, req)
-		return nil
-	}
-	if err := common.UnmarshalBodyReusable(c, &req); err != nil {
-		return createTaskError(err, "invalid_request", http.StatusBadRequest, true)
-	}
-	if taskErr := validatePrompt(req.EffectivePrompt()); taskErr != nil {
-		return taskErr
-	}
-	if len(req.Images) == 0 && strings.TrimSpace(req.Image) != "" {
-		req.Images = []string{req.Image}
-	}
 	storeTaskRequest(c, info, action, req)
 	return nil
 }

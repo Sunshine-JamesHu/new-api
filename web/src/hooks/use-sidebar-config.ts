@@ -47,6 +47,7 @@ const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
     detail: true,
     token: true,
     log: true,
+    audit: true,
     midjourney: true,
     task: true,
   },
@@ -54,7 +55,7 @@ const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
     enabled: true,
     topup: true,
     personal: true,
-    invoice: true,
+    security: true,
   },
   admin: {
     enabled: true,
@@ -64,7 +65,6 @@ const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
     user: true,
     setting: true,
     subscription: true,
-    invoice: true,
   },
 }
 
@@ -105,11 +105,12 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/keys': { section: 'console', module: 'token' },
   '/usage-logs': { section: 'console', module: 'log' },
   '/usage-logs/common': { section: 'console', module: 'log' },
+  '/usage-logs/audit': { section: 'console', module: 'audit' },
   '/usage-logs/drawing': { section: 'console', module: 'midjourney' },
   '/usage-logs/task': { section: 'console', module: 'task' },
   '/wallet': { section: 'personal', module: 'topup' },
   '/profile': { section: 'personal', module: 'personal' },
-  '/invoices': { section: 'personal', module: 'invoice' },
+  '/security': { section: 'personal', module: 'security' },
   '/channels': { section: 'admin', module: 'channel' },
   '/models': { section: 'admin', module: 'models' },
   '/models/metadata': { section: 'admin', module: 'models' },
@@ -117,7 +118,6 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/users': { section: 'admin', module: 'user' },
   '/redemption-codes': { section: 'admin', module: 'redemption' },
   '/subscriptions': { section: 'admin', module: 'subscription' },
-  '/invoice-management': { section: 'admin', module: 'invoice' },
   '/system-settings': { section: 'admin', module: 'setting' },
   '/system-settings/site': { section: 'admin', module: 'setting' },
 }

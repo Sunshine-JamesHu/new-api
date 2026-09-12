@@ -1,0 +1,3 @@
+display_name: OwlAI
+short_description: Generate images and videos by calling a deployed new-api/OwlAI gateway.
+default_prompt: Use OwlAI's Node.js scripts to call the customer's deployed new-api/OwlAI site for image or video generation.

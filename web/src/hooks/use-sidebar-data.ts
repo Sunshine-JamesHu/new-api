@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   Activity,
   Box,
+  ClipboardList,
   CreditCard,
   FileText,
   FlaskConical,
@@ -30,11 +31,11 @@ import {
   Radio,
   ServerCog,
   Settings,
+  ShieldCheck,
   Ticket,
   User,
   Users,
   Wallet,
-  ReceiptText,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -93,6 +94,11 @@ export function useSidebarData(): SidebarData {
             icon: FileText,
           },
           {
+            title: t('Audit Logs'),
+            url: '/usage-logs/audit',
+            icon: ClipboardList,
+          },
+          {
             title: t('Task Logs'),
             url: '/usage-logs/task',
             activeUrls: ['/usage-logs/drawing'],
@@ -116,9 +122,9 @@ export function useSidebarData(): SidebarData {
             icon: User,
           },
           {
-            title: t('Invoices'),
-            url: '/invoices',
-            icon: ReceiptText,
+            title: t('Security & Access'),
+            url: '/security',
+            icon: ShieldCheck,
           },
         ],
       },
@@ -150,12 +156,6 @@ export function useSidebarData(): SidebarData {
             title: t('Subscriptions'),
             url: '/subscriptions',
             icon: CreditCard,
-          },
-          {
-            title: t('Invoice Management'),
-            url: '/invoice-management',
-            icon: ReceiptText,
-            requiredRole: ROLE.ADMIN,
           },
           {
             title: t('System Info'),

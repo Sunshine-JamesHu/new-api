@@ -20,6 +20,8 @@ import i18next from 'i18next'
 import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
 
+import { handleServerError } from '@/lib/handle-server-error'
+
 import {
   calculateAmount,
   calculateAlipayAmount,
@@ -213,7 +215,7 @@ export function usePayment() {
           payment_method: paymentType,
         })
         if (!isApiSuccess(response)) {
-          toast.error(response.message || i18next.t('Payment request failed'))
+          handleServerError(response, i18next.t('Payment request failed'))
           return false
         }
         if (response.data) {
@@ -226,8 +228,8 @@ export function usePayment() {
         }
 
         return false
-      } catch {
-        toast.error(i18next.t('Payment request failed'))
+      } catch (error) {
+        handleServerError(error, i18next.t('Payment request failed'))
         return false
       } finally {
         if (!keepPayWindowOpen) {
