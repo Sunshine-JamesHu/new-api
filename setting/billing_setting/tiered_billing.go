@@ -18,27 +18,31 @@ import (
 )
 
 const (
-	BillingModeRatio        = "ratio"
-	BillingModeTieredExpr   = "tiered_expr"
-	BillingModeField        = "billing_mode"
-	BillingExprField        = "billing_expr"
-	PluginBillingExprOption = "billing_setting.plugin_billing_expr"
-	maxTaskExprSmokeTests   = 64
+	BillingModeRatio          = "ratio"
+	BillingModeTieredExpr     = "tiered_expr"
+	BillingModePerSecond      = "per_second"
+	BillingModeField          = "billing_mode"
+	BillingExprField          = "billing_expr"
+	PerSecondMultipliersField = "per_second_multipliers"
+	PluginBillingExprOption   = "billing_setting.plugin_billing_expr"
+	maxTaskExprSmokeTests     = 64
 )
 
 // BillingSetting is managed by config.GlobalConfig.Register.
 // DB keys: billing_setting.billing_mode, billing_setting.billing_expr,
 // billing_setting.plugin_billing_expr
 type BillingSetting struct {
-	BillingMode       map[string]string `json:"billing_mode"`
-	BillingExpr       map[string]string `json:"billing_expr"`
-	PluginBillingExpr map[string]string `json:"plugin_billing_expr"`
+	BillingMode          map[string]string             `json:"billing_mode"`
+	BillingExpr          map[string]string             `json:"billing_expr"`
+	PluginBillingExpr    map[string]string             `json:"plugin_billing_expr"`
+	PerSecondMultipliers map[string]map[string]float64 `json:"per_second_multipliers"`
 }
 
 var billingSetting = BillingSetting{
-	BillingMode:       make(map[string]string),
-	BillingExpr:       make(map[string]string),
-	PluginBillingExpr: make(map[string]string),
+	BillingMode:          make(map[string]string),
+	BillingExpr:          make(map[string]string),
+	PluginBillingExpr:    make(map[string]string),
+	PerSecondMultipliers: make(map[string]map[string]float64),
 }
 
 func init() {
@@ -65,6 +69,31 @@ func GetBillingMode(model string) string {
 		return BillingModeTieredExpr
 	}
 	return BillingModeRatio
+}
+
+func IsPerSecondBilling(model string) bool {
+	return GetBillingMode(model) == BillingModePerSecond
+}
+
+func GetPerSecondMultipliers(model string) map[string]float64 {
+	values := billingSetting.PerSecondMultipliers[model]
+	if len(values) == 0 {
+		return nil
+	}
+	return lo.Assign(values)
+}
+
+func GetPerSecondMultiplier(model, key string) (float64, bool) {
+	values := GetPerSecondMultipliers(model)
+	if value, ok := values[key]; ok && value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0) {
+		return value, true
+	}
+	for configuredKey, value := range values {
+		if strings.EqualFold(configuredKey, key) && value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0) {
+			return value, true
+		}
+	}
+	return 0, false
 }
 
 func GetBillingExpr(model string) (string, bool) {

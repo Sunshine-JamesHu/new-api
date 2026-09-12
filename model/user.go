@@ -235,6 +235,16 @@ func UpdateUserBindColumn(userId int, column string, value string) error {
 	return DB.Model(&User{}).Where("id = ?", userId).Update(column, value).Error
 }
 
+type UserStats struct {
+	RemainingQuota int64 `json:"remaining_quota"`
+}
+
+func GetUserStats() (*UserStats, error) {
+	stats := &UserStats{}
+	err := DB.Model(&User{}).Select("COALESCE(SUM(quota), 0) AS remaining_quota").Scan(stats).Error
+	return stats, err
+}
+
 // 根据用户角色生成默认的边栏配置
 func generateDefaultSidebarConfigForRole(userRole int) string {
 	defaultConfig := map[string]any{}

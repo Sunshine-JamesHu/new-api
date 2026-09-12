@@ -182,12 +182,11 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	return upstreamResp.Output.TaskID, responseBody, nil
 }
 
-func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy string) (*http.Response, error) {
-	taskID, ok := body["task_id"].(string)
-	if !ok {
+func (a *TaskAdaptor) FetchTask(baseUrl, key string, task *model.Task, proxy string) (*http.Response, error) {
+	if task == nil || task.TaskID == "" {
 		return nil, fmt.Errorf("invalid task_id")
 	}
-	uri := fmt.Sprintf("%s/api/v1/tasks/%s", strings.TrimRight(baseUrl, "/"), taskID)
+	uri := fmt.Sprintf("%s/api/v1/tasks/%s", strings.TrimRight(baseUrl, "/"), task.TaskID)
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
 	if err != nil {
 		return nil, err
@@ -208,7 +207,7 @@ func (a *TaskAdaptor) GetChannelName() string {
 	return ChannelName
 }
 
-func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
+func (a *TaskAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, respBody []byte) (*relaycommon.TaskInfo, error) {
 	var upstreamResp videoResponse
 	if err := common.Unmarshal(respBody, &upstreamResp); err != nil {
 		return nil, errors.Wrap(err, "unmarshal task result failed")

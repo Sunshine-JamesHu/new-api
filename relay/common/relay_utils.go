@@ -333,3 +333,29 @@ func ValidateBasicTaskRequest(c *gin.Context, info *RelayInfo, action string) *d
 	storeTaskRequest(c, info, action, req)
 	return nil
 }
+
+// ValidateMetadataPassthroughTaskRequest validates task requests while
+// accepting provider-specific fields carried in metadata.
+func ValidateMetadataPassthroughTaskRequest(c *gin.Context, info *RelayInfo, action string) *dto.TaskError {
+	var req TaskSubmitReq
+	if strings.HasPrefix(c.GetHeader("Content-Type"), "multipart/form-data") {
+		parsed, err := validateMultipartTaskRequest(c, info, action)
+		if err != nil {
+			return createTaskError(err, "invalid_multipart_form", http.StatusBadRequest, true)
+		}
+		req = parsed
+	} else if err := common.UnmarshalBodyReusable(c, &req); err != nil {
+		return createTaskError(err, "invalid_request", http.StatusBadRequest, true)
+	}
+	if taskErr := validatePrompt(req.EffectivePrompt()); taskErr != nil {
+		return taskErr
+	}
+	if taskErr := validateTaskDurationBounds(req); taskErr != nil {
+		return taskErr
+	}
+	if len(req.Images) == 0 && strings.TrimSpace(req.Image) != "" {
+		req.Images = []string{req.Image}
+	}
+	storeTaskRequest(c, info, action, req)
+	return nil
+}

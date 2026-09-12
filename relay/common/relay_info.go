@@ -977,23 +977,53 @@ type TaskSubmitReq struct {
 	Image          string         `json:"image,omitempty"`
 	Images         []string       `json:"images,omitempty"`
 	Size           string         `json:"size,omitempty"`
+	Resolution     string         `json:"resolution,omitempty"`
 	Duration       int            `json:"duration,omitempty"`
 	Seconds        string         `json:"seconds,omitempty"`
 	InputReference string         `json:"input_reference,omitempty"`
+	Input          map[string]any `json:"input,omitempty"`
+	Parameters     map[string]any `json:"parameters,omitempty"`
 	Metadata       map[string]any `json:"metadata,omitempty"`
 }
 
 func (t *TaskSubmitReq) GetPrompt() string {
-	return t.Prompt
+	return t.EffectivePrompt()
 }
 
 func (t *TaskSubmitReq) HasImage() bool {
 	return len(t.Images) > 0
 }
 
+func (t *TaskSubmitReq) EffectivePrompt() string {
+	if t.Metadata != nil {
+		if input, ok := t.Metadata["input"].(map[string]any); ok {
+			if prompt, ok := input["prompt"].(string); ok && strings.TrimSpace(prompt) != "" {
+				return strings.TrimSpace(prompt)
+			}
+		}
+		if prompt, ok := t.Metadata["prompt"].(string); ok && strings.TrimSpace(prompt) != "" {
+			return strings.TrimSpace(prompt)
+		}
+		if content, ok := t.Metadata["content"].([]any); ok {
+			for _, item := range content {
+				if itemMap, ok := item.(map[string]any); ok {
+					if text, ok := itemMap["text"].(string); ok && strings.TrimSpace(text) != "" {
+						return strings.TrimSpace(text)
+					}
+				}
+			}
+		}
+	}
+	if prompt, ok := t.Input["prompt"].(string); ok && strings.TrimSpace(prompt) != "" {
+		return strings.TrimSpace(prompt)
+	}
+	return strings.TrimSpace(t.Prompt)
+}
+
 func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 	type Alias TaskSubmitReq
 	aux := &struct {
+		Input    json.RawMessage `json:"input,omitempty"`
 		Metadata json.RawMessage `json:"metadata,omitempty"`
 		Duration json.RawMessage `json:"duration,omitempty"`
 		*Alias
@@ -1015,6 +1045,16 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 				if v, err := strconv.Atoi(durationStr); err == nil {
 					t.Duration = v
 				}
+			}
+		}
+	}
+
+	if len(aux.Input) > 0 {
+		var inputObj map[string]any
+		if err := common.Unmarshal(aux.Input, &inputObj); err == nil {
+			t.Input = inputObj
+			if prompt, ok := inputObj["prompt"].(string); ok && t.Prompt == "" {
+				t.Prompt = prompt
 			}
 		}
 	}
