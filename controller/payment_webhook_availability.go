@@ -42,7 +42,7 @@ func isAlipayTopUpEnabled() bool {
 	if !isPaymentComplianceConfirmed() {
 		return false
 	}
-	return isAlipayWebhookConfigured()
+	return isAlipayWebhookConfigured() && operation_setting.HasOfficialAlipayPayMethod()
 }
 
 func isAlipayWebhookConfigured() bool {
@@ -52,7 +52,7 @@ func isAlipayWebhookConfigured() bool {
 }
 
 func isAlipayWebhookEnabled() bool {
-	return isAlipayTopUpEnabled()
+	return isAlipayWebhookConfigured()
 }
 
 func isCreemWebhookConfigured() bool {

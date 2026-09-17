@@ -174,7 +174,7 @@ func TestEpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 	require.False(t, isEpayWebhookEnabled())
 }
 
-func TestAlipayTopUpInfoKeepsLegacyEpayAlipaySeparate(t *testing.T) {
+func TestAlipayTopUpInfoControlledByPayMethods(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	confirmPaymentComplianceForTest(t)
 	originalAppID := setting.AlipayAppId
@@ -191,6 +191,8 @@ func TestAlipayTopUpInfoKeepsLegacyEpayAlipaySeparate(t *testing.T) {
 	setting.AlipayAppId = "2021000000000000"
 	setting.AlipayPrivateKey = "app-private-key"
 	setting.AlipayPublicKey = "alipay-public-key"
+
+	// 1. Credentials configured, but official alipay not in PayMethods: should NOT be added
 	operation_setting.PayMethods = []map[string]string{
 		{"name": "Legacy Epay Alipay", "type": model.PaymentMethodAlipay},
 	}
@@ -198,7 +200,6 @@ func TestAlipayTopUpInfoKeepsLegacyEpayAlipaySeparate(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodGet, "/api/user/topup", nil)
-
 	GetTopUpInfo(c)
 
 	require.Equal(t, http.StatusOK, w.Code)
@@ -212,19 +213,38 @@ func TestAlipayTopUpInfoKeepsLegacyEpayAlipaySeparate(t *testing.T) {
 	}
 	require.NoError(t, common.Unmarshal(w.Body.Bytes(), &body))
 	require.True(t, body.Success)
-	assert.True(t, body.Data.EnableAlipayTopup)
+	assert.False(t, body.Data.EnableAlipayTopup)
 	assert.False(t, body.Data.EnableOnlineTopup)
-	require.Len(t, body.Data.PayMethods, 2)
-
+	require.Len(t, body.Data.PayMethods, 1)
 	assert.Equal(t, "Legacy Epay Alipay", body.Data.PayMethods[0]["name"])
 	assert.Equal(t, model.PaymentMethodAlipay, body.Data.PayMethods[0]["type"])
 	assert.Empty(t, body.Data.PayMethods[0]["provider"])
 
+	// 2. Official alipay explicitly added to PayMethods: should be returned and enabled
+	operation_setting.PayMethods = []map[string]string{
+		{"name": "Legacy Epay Alipay", "type": model.PaymentMethodAlipay},
+		{"name": "支付宝官方", "type": model.PaymentMethodAlipay, "provider": model.PaymentProviderAlipay},
+	}
+
+	w = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/user/topup", nil)
+	GetTopUpInfo(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, common.Unmarshal(w.Body.Bytes(), &body))
+	require.True(t, body.Success)
+	assert.True(t, body.Data.EnableAlipayTopup)
+	require.Len(t, body.Data.PayMethods, 2)
+	assert.Equal(t, "Legacy Epay Alipay", body.Data.PayMethods[0]["name"])
+	assert.Empty(t, body.Data.PayMethods[0]["provider"])
+	assert.Equal(t, "支付宝官方", body.Data.PayMethods[1]["name"])
 	assert.Equal(t, model.PaymentMethodAlipay, body.Data.PayMethods[1]["type"])
 	assert.Equal(t, model.PaymentProviderAlipay, body.Data.PayMethods[1]["provider"])
+	assert.NotEmpty(t, body.Data.PayMethods[1]["min_topup"])
 }
 
-func TestAlipayTopUpInfoRequiresConfigAndCompliance(t *testing.T) {
+func TestAlipayTopUpInfoFiltersOfficialWhenNotConfigured(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	paymentSetting := operation_setting.GetPaymentSetting()
 	originalConfirmed := paymentSetting.ComplianceConfirmed
@@ -244,6 +264,7 @@ func TestAlipayTopUpInfoRequiresConfigAndCompliance(t *testing.T) {
 
 	operation_setting.PayMethods = []map[string]string{
 		{"name": "Legacy Epay Alipay", "type": model.PaymentMethodAlipay},
+		{"name": "支付宝官方", "type": model.PaymentMethodAlipay, "provider": model.PaymentProviderAlipay},
 	}
 	setting.AlipayAppId = "2021000000000000"
 	setting.AlipayPrivateKey = "app-private-key"
@@ -268,6 +289,7 @@ func TestAlipayTopUpInfoRequiresConfigAndCompliance(t *testing.T) {
 	assert.False(t, body.Data.EnableAlipayTopup)
 	assert.Empty(t, body.Data.PayMethods)
 
+	// Compliance confirmed, but public key missing: official alipay must be filtered out
 	paymentSetting.ComplianceConfirmed = true
 	paymentSetting.ComplianceTermsVersion = operation_setting.CurrentComplianceTermsVersion
 	setting.AlipayPublicKey = ""
@@ -280,5 +302,30 @@ func TestAlipayTopUpInfoRequiresConfigAndCompliance(t *testing.T) {
 	require.True(t, body.Success)
 	assert.False(t, body.Data.EnableAlipayTopup)
 	require.Len(t, body.Data.PayMethods, 1)
+	assert.Equal(t, "Legacy Epay Alipay", body.Data.PayMethods[0]["name"])
 	assert.Empty(t, body.Data.PayMethods[0]["provider"])
+}
+
+func TestAlipayWebhookEnabledOnlyRequiresConfiguredCredentials(t *testing.T) {
+	originalAppID := setting.AlipayAppId
+	originalPrivateKey := setting.AlipayPrivateKey
+	originalPublicKey := setting.AlipayPublicKey
+	originalPayMethods := operation_setting.PayMethods
+	t.Cleanup(func() {
+		setting.AlipayAppId = originalAppID
+		setting.AlipayPrivateKey = originalPrivateKey
+		setting.AlipayPublicKey = originalPublicKey
+		operation_setting.PayMethods = originalPayMethods
+	})
+
+	setting.AlipayAppId = "2021000000000000"
+	setting.AlipayPrivateKey = "app-private-key"
+	setting.AlipayPublicKey = "alipay-public-key"
+	// Even if PayMethods has NO official alipay, webhook remains enabled for in-flight callbacks
+	operation_setting.PayMethods = nil
+	assert.True(t, isAlipayWebhookEnabled())
+	assert.False(t, isAlipayTopUpEnabled())
+
+	setting.AlipayAppId = ""
+	assert.False(t, isAlipayWebhookEnabled())
 }

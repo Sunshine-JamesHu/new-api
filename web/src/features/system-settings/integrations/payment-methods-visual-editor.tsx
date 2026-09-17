@@ -65,6 +65,15 @@ export function PaymentMethodsVisualEditor({
   const { t } = useTranslation()
   const paymentTemplates = [
     {
+      name: t('Official Alipay'),
+      template: {
+        icon: getDefaultIconName('alipay'),
+        name: '支付宝官方',
+        type: 'alipay',
+        provider: 'alipay',
+      },
+    },
+    {
       name: t('Epay Alipay'),
       template: {
         icon: getDefaultIconName('alipay'),
@@ -127,6 +136,7 @@ export function PaymentMethodsVisualEditor({
         'type' in item &&
         typeof item.name === 'string' &&
         typeof item.type === 'string' &&
+        (!('provider' in item) || typeof item.provider === 'string') &&
         (!('icon' in item) || typeof item.icon === 'string') &&
         (!('min_topup' in item) || typeof item.min_topup === 'string') &&
         (!('color' in item) || typeof item.color === 'string')
@@ -161,7 +171,8 @@ export function PaymentMethodsVisualEditor({
           'name' in item &&
           'type' in item &&
           item.name === editData.name &&
-          item.type === editData.type
+          item.type === editData.type &&
+          ((item as PaymentMethodData).provider ?? '') === (editData.provider ?? '')
       )
       if (index !== -1) {
         updatedArray[index] = data
@@ -190,7 +201,8 @@ export function PaymentMethodsVisualEditor({
           'name' in item &&
           'type' in item &&
           item.name === method.name &&
-          item.type === method.type
+          item.type === method.type &&
+          ((item as PaymentMethodData).provider ?? '') === (method.provider ?? '')
         )
     )
 
@@ -222,7 +234,8 @@ export function PaymentMethodsVisualEditor({
         'type' in item &&
         'name' in item &&
         item.type === template.type &&
-        item.name === template.name
+        item.name === template.name &&
+        ((item as PaymentMethodData).provider ?? '') === (template.provider ?? '')
     )
 
     if (!exists) {
@@ -308,7 +321,7 @@ export function PaymentMethodsVisualEditor({
           <StaticDataTable
             className='hidden rounded-none border-0 md:block'
             data={filteredMethods}
-            getRowKey={(method, index) => `${method.type}-${index}`}
+            getRowKey={(method, index) => `${method.type}-${method.provider ?? ''}-${index}`}
             columns={[
               {
                 id: 'name',
@@ -320,9 +333,16 @@ export function PaymentMethodsVisualEditor({
                 id: 'type',
                 header: t('Payment type key'),
                 cell: (method) => (
-                  <code className='bg-muted rounded px-1.5 py-0.5 text-sm'>
-                    {method.type}
-                  </code>
+                  <div className='flex items-center gap-1.5'>
+                    <code className='bg-muted rounded px-1.5 py-0.5 text-sm'>
+                      {method.type}
+                    </code>
+                    {method.provider && (
+                      <span className='rounded bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-300'>
+                        {method.provider}
+                      </span>
+                    )}
+                  </div>
                 ),
               },
               {
@@ -383,6 +403,7 @@ export function PaymentMethodsVisualEditor({
               const iconName = getEffectiveIconName(method)
               const methodKey = [
                 method.type,
+                method.provider,
                 method.name,
                 method.icon,
                 method.min_topup,
@@ -396,9 +417,16 @@ export function PaymentMethodsVisualEditor({
                   <div className='mb-3 flex items-start justify-between'>
                     <div className='flex-1'>
                       <div className='mb-1 font-medium'>{method.name}</div>
-                      <code className='bg-muted rounded px-1.5 py-0.5 text-xs'>
-                        {method.type}
-                      </code>
+                      <div className='flex items-center gap-1.5'>
+                        <code className='bg-muted rounded px-1.5 py-0.5 text-xs'>
+                          {method.type}
+                        </code>
+                        {method.provider && (
+                          <span className='rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-300'>
+                            {method.provider}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className='flex gap-1'>
                       <Button

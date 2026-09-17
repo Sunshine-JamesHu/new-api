@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -26,9 +27,13 @@ func GetTopUpInfo(c *gin.Context) {
 	complianceConfirmed := operation_setting.IsPaymentComplianceConfirmed()
 
 	// 获取支付方式
-	payMethods := operation_setting.PayMethods
-	if !complianceConfirmed {
-		payMethods = []map[string]string{}
+	payMethods := make([]map[string]string, 0, len(operation_setting.PayMethods))
+	if complianceConfirmed {
+		for _, method := range operation_setting.PayMethods {
+			methodCopy := make(map[string]string, len(method))
+			maps.Copy(methodCopy, method)
+			payMethods = append(payMethods, methodCopy)
+		}
 	}
 
 	// 如果启用了 Stripe 支付，添加到支付方法列表
@@ -54,23 +59,26 @@ func GetTopUpInfo(c *gin.Context) {
 	}
 
 	if isAlipayTopUpEnabled() {
-		hasAlipay := false
 		for _, method := range payMethods {
-			if method["type"] == model.PaymentMethodAlipay && method["provider"] == model.PaymentProviderAlipay {
-				hasAlipay = true
-				break
+			if operation_setting.IsOfficialAlipayPayMethod(method) {
+				method["type"] = model.PaymentMethodAlipay
+				method["provider"] = model.PaymentProviderAlipay
+				if method["icon"] == "" {
+					method["icon"] = "SiAlipay"
+				}
+				if method["min_topup"] == "" {
+					method["min_topup"] = strconv.FormatInt(getMinTopup(), 10)
+				}
 			}
 		}
-
-		if !hasAlipay {
-			payMethods = append(payMethods, map[string]string{
-				"name":      "支付宝官方",
-				"type":      model.PaymentMethodAlipay,
-				"provider":  model.PaymentProviderAlipay,
-				"icon":      "SiAlipay",
-				"min_topup": strconv.FormatInt(getMinTopup(), 10),
-			})
+	} else {
+		filteredMethods := make([]map[string]string, 0, len(payMethods))
+		for _, method := range payMethods {
+			if !operation_setting.IsOfficialAlipayPayMethod(method) {
+				filteredMethods = append(filteredMethods, method)
+			}
 		}
+		payMethods = filteredMethods
 	}
 
 	// Waffo Pancake is displayed above the standard Waffo gateway.

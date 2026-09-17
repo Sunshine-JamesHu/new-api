@@ -375,3 +375,34 @@ func getAlipayNotifyUserQuota(t *testing.T, userID int) int {
 	require.NoError(t, model.DB.Select("quota").Where("id = ?", userID).First(&user).Error)
 	return user.Quota
 }
+
+func TestRequestAlipayPayRejectsWhenNotInPayMethods(t *testing.T) {
+	setupAlipayNotifyTest(t)
+	operation_setting.PayMethods = []map[string]string{
+		{"name": "Legacy Epay Alipay", "type": model.PaymentMethodAlipay},
+	}
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/user/alipay/pay", bytes.NewBufferString(`{"amount":10,"payment_method":"alipay"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set("id", 201)
+
+	RequestAlipayPay(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var resp struct {
+		Message string `json:"message"`
+		Data    string `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &resp))
+	assert.Equal(t, "error", resp.Message)
+	assert.Equal(t, "official Alipay payment is not configured", resp.Data)
+
+	operation_setting.PayMethods = append(operation_setting.PayMethods, map[string]string{
+		"name":     "支付宝官方",
+		"type":     model.PaymentMethodAlipay,
+		"provider": model.PaymentProviderAlipay,
+	})
+	assert.True(t, isAlipayTopUpEnabled())
+}

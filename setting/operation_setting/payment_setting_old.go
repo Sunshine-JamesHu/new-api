@@ -57,3 +57,19 @@ func ContainsPayMethod(method string) bool {
 	}
 	return false
 }
+
+func IsOfficialAlipayPayMethod(method map[string]string) bool {
+	if method == nil {
+		return false
+	}
+	return (method["type"] == "alipay" && method["provider"] == "alipay") || method["type"] == "alipay_official"
+}
+
+func HasOfficialAlipayPayMethod() bool {
+	for _, payMethod := range PayMethods {
+		if IsOfficialAlipayPayMethod(payMethod) {
+			return true
+		}
+	}
+	return false
+}

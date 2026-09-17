@@ -41,6 +41,7 @@ const createPaymentMethodDialogSchema = (t: (key: string) => string) =>
   z.object({
     name: z.string().min(1, t('Payment method name is required')),
     type: z.string().min(1, t('Payment type key is required')),
+    provider: z.string().optional(),
     icon: z.string().optional(),
     min_topup: z.string().optional(),
   })
@@ -54,6 +55,7 @@ const PAYMENT_METHOD_FORM_ID = 'payment-method-form'
 export type PaymentMethodData = {
   name: string
   type: string
+  provider?: string
   icon?: string
   min_topup?: string
   color?: string
@@ -87,27 +89,43 @@ export function PaymentMethodDialog({
   const paymentTypeOptions = [
     {
       iconName: 'SiAlipay',
+      label: `${t('Official Alipay')} (alipay)`,
+      name: t('Official Alipay'),
+      value: 'alipay_official',
+      type: 'alipay',
+      provider: 'alipay',
+    },
+    {
+      iconName: 'SiAlipay',
       label: `${t('Alipay')} (Epay: alipay)`,
       name: t('Alipay'),
       value: 'alipay',
+      type: 'alipay',
+      provider: '',
     },
     {
       iconName: 'SiWechat',
       label: `${t('WeChat Pay')} (Epay: wxpay)`,
       name: t('WeChat Pay'),
       value: 'wxpay',
+      type: 'wxpay',
+      provider: '',
     },
     {
       iconName: 'SiStripe',
       label: `${t('Stripe')} (stripe)`,
       name: t('Stripe'),
       value: 'stripe',
+      type: 'stripe',
+      provider: '',
     },
     {
       iconName: 'LuCreditCard',
       label: 'Waffo Pancake (waffo_pancake)',
       name: 'Waffo Pancake',
       value: 'waffo_pancake',
+      type: 'waffo_pancake',
+      provider: '',
     },
   ]
   const getPaymentTypeOption = (value: string) =>
@@ -118,6 +136,7 @@ export function PaymentMethodDialog({
     defaultValues: {
       name: '',
       type: '',
+      provider: '',
       icon: '',
       min_topup: '',
     },
@@ -130,6 +149,7 @@ export function PaymentMethodDialog({
       form.reset({
         name: editData.name,
         type: editData.type,
+        provider: editData.provider ?? '',
         icon: editData.icon ?? getDefaultIconName(editData.type),
         min_topup: editData.min_topup ?? '',
       })
@@ -137,6 +157,7 @@ export function PaymentMethodDialog({
       form.reset({
         name: '',
         type: '',
+        provider: '',
         icon: '',
         min_topup: '',
       })
@@ -148,11 +169,17 @@ export function PaymentMethodDialog({
       name: values.name,
       type: values.type,
     }
+    if (values.provider && values.provider.trim() !== '') {
+      data.provider = values.provider.trim()
+    }
     if (values.icon && values.icon.trim() !== '') {
       data.icon = values.icon.trim()
     }
     if (values.min_topup && values.min_topup.trim() !== '') {
       data.min_topup = values.min_topup
+    }
+    if (editData?.color) {
+      data.color = editData.color
     }
     onSave(data)
     form.reset()
@@ -209,52 +236,66 @@ export function PaymentMethodDialog({
           <FormField
             control={form.control}
             name='type'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t('Payment type key')}</FormLabel>
-                <FormControl>
-                  <Combobox
-                    options={paymentTypeOptions}
-                    value={field.value}
-                    onValueChange={(value) => {
-                      if (value === null) return
-                      const currentIcon = form.getValues('icon')?.trim()
-                      const currentName = form.getValues('name')?.trim()
-                      const previousOption = getPaymentTypeOption(field.value)
-                      const nextOption = getPaymentTypeOption(value)
+            render={({ field }) => {
+              const currentType = field.value
+              const currentProvider = form.watch('provider')
+              const selectedTypeValue =
+                currentType === 'alipay' && currentProvider === 'alipay'
+                  ? 'alipay_official'
+                  : currentType
 
-                      field.onChange(value)
-                      if (
-                        nextOption?.iconName &&
-                        (!currentIcon ||
-                          currentIcon === previousOption?.iconName)
-                      ) {
-                        form.setValue('icon', nextOption.iconName, {
-                          shouldDirty: true,
-                        })
-                      }
-                      if (
-                        nextOption?.name &&
-                        (!currentName || currentName === previousOption?.name)
-                      ) {
-                        form.setValue('name', nextOption.name, {
-                          shouldDirty: true,
-                        })
-                      }
-                    }}
-                    placeholder={t('Select or enter payment type key')}
-                    searchPlaceholder={t('Search payment type keys...')}
-                    allowCustomValue
-                  />
-                </FormControl>
-                <FormDescription className='leading-relaxed'>
-                  {t(
-                    'Used to decide the payment flow. Built-in keys include stripe for Stripe and waffo_pancake for Waffo Pancake; other values are sent to Epay as the type parameter.'
-                  )}
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
+              return (
+                <FormItem>
+                  <FormLabel>{t('Payment type key')}</FormLabel>
+                  <FormControl>
+                    <Combobox
+                      options={paymentTypeOptions}
+                      value={selectedTypeValue}
+                      onValueChange={(value) => {
+                        if (value === null) return
+                        const currentIcon = form.getValues('icon')?.trim()
+                        const currentName = form.getValues('name')?.trim()
+                        const previousOption = getPaymentTypeOption(selectedTypeValue)
+                        const nextOption = getPaymentTypeOption(value)
+
+                        const actualType = nextOption?.type ?? value
+                        const actualProvider = nextOption?.provider ?? ''
+
+                        field.onChange(actualType)
+                        form.setValue('provider', actualProvider, { shouldDirty: true })
+
+                        if (
+                          nextOption?.iconName &&
+                          (!currentIcon ||
+                            currentIcon === previousOption?.iconName)
+                        ) {
+                          form.setValue('icon', nextOption.iconName, {
+                            shouldDirty: true,
+                          })
+                        }
+                        if (
+                          nextOption?.name &&
+                          (!currentName || currentName === previousOption?.name)
+                        ) {
+                          form.setValue('name', nextOption.name, {
+                            shouldDirty: true,
+                          })
+                        }
+                      }}
+                      placeholder={t('Select or enter payment type key')}
+                      searchPlaceholder={t('Search payment type keys...')}
+                      allowCustomValue
+                    />
+                  </FormControl>
+                  <FormDescription className='leading-relaxed'>
+                    {t(
+                      'Used to decide the payment flow. Built-in keys include official alipay, stripe for Stripe and waffo_pancake for Waffo Pancake; other values are sent to Epay as the type parameter.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )
+            }}
           />
 
           <FormField
