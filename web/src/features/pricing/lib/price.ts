@@ -297,7 +297,7 @@ export function getPerSecondResolutionPrices(
     return {
       key: item.key,
       label: item.label,
-      formatted: formatCurrencyFromUSD(priceInUSD, {
+      formatted: formatBillingCurrencyFromUSD(priceInUSD, {
         digitsLarge: 4,
         digitsSmall: 4,
         abbreviate: false,

@@ -429,6 +429,8 @@ export type SecuritySettings = {
   UserViolationBanRules: string
   UserViolationBanThreshold: number
   UserViolationBanWindowHours: number
+  violation_ban_email_subject: string
+  violation_ban_email_body: string
 }
 
 export type UpstreamChannel = {

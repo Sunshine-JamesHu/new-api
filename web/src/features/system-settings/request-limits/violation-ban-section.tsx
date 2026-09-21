@@ -36,6 +36,7 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Tooltip,
   TooltipContent,
@@ -67,6 +68,8 @@ type ViolationBanSectionProps = {
     UserViolationBanRules: string
     UserViolationBanThreshold: number
     UserViolationBanWindowHours: number
+    violation_ban_email_subject: string
+    violation_ban_email_body: string
   }
 }
 
@@ -84,6 +87,8 @@ const createViolationBanSchema = () =>
           })
         )
         .max(maxRules),
+      violation_ban_email_subject: z.string().trim().min(1).max(500),
+      violation_ban_email_body: z.string().trim().min(1).max(20000),
     })
     .superRefine((values, context) => {
       if (!values.UserViolationBanEnabled) return
@@ -153,6 +158,8 @@ function buildFormDefaults(
     ),
     UserViolationBanThreshold: defaults.UserViolationBanThreshold,
     UserViolationBanWindowHours: defaults.UserViolationBanWindowHours,
+    violation_ban_email_subject: defaults.violation_ban_email_subject,
+    violation_ban_email_body: defaults.violation_ban_email_body,
   }
 }
 
@@ -201,12 +208,20 @@ export function ViolationBanSection(props: ViolationBanSectionProps) {
     const enabledChanged =
       values.UserViolationBanEnabled !==
       props.defaultValues.UserViolationBanEnabled
+    const subjectChanged =
+      values.violation_ban_email_subject.trim() !==
+      props.defaultValues.violation_ban_email_subject.trim()
+    const bodyChanged =
+      values.violation_ban_email_body.trim() !==
+      props.defaultValues.violation_ban_email_body.trim()
 
     if (
       !rulesChanged &&
       !thresholdChanged &&
       !windowHoursChanged &&
-      !enabledChanged
+      !enabledChanged &&
+      !subjectChanged &&
+      !bodyChanged
     ) {
       toast.info(t('No changes to save'))
       return
@@ -229,6 +244,18 @@ export function ViolationBanSection(props: ViolationBanSectionProps) {
       configurationUpdates.push({
         key: 'UserViolationBanWindowHours',
         value: values.UserViolationBanWindowHours,
+      })
+    }
+    if (subjectChanged) {
+      configurationUpdates.push({
+        key: 'violation_ban_email_subject',
+        value: values.violation_ban_email_subject.trim(),
+      })
+    }
+    if (bodyChanged) {
+      configurationUpdates.push({
+        key: 'violation_ban_email_body',
+        value: values.violation_ban_email_body.trim(),
       })
     }
 
@@ -438,6 +465,44 @@ export function ViolationBanSection(props: ViolationBanSectionProps) {
                     </div>
                   ))}
                 </div>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='violation_ban_email_subject'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Violation ban email subject')}</FormLabel>
+                <FormControl>
+                  <Input {...field} maxLength={500} />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Subject of the email sent when a user is automatically banned.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='violation_ban_email_body'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Violation ban email body')}</FormLabel>
+                <FormControl>
+                  <Textarea {...field} rows={8} maxLength={20000} />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'HTML is supported. Placeholders: {{display_name}}, {{username}}, {{email}}, {{violation_count}}, {{ban_threshold}}, {{system_name}}.'
+                  )}
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}

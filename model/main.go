@@ -349,6 +349,10 @@ func migrateDB() error {
 		&Log{},
 		&Midjourney{},
 		&TopUp{},
+		&InvoiceTitle{},
+		&InvoiceApplication{},
+		&InvoiceApplicationOrder{},
+		&AffiliateRebate{},
 		&QuotaData{},
 		&Task{},
 		&TaskPlugin{},
@@ -392,6 +396,9 @@ func migrateDB() error {
 	if err := migrateHappyHorseChannelType(); err != nil {
 		return err
 	}
+	if err := migrateTopUpInvoiceIssued(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -402,6 +409,26 @@ func migrateHappyHorseChannelType() error {
 		}
 		if err := DB.Model(&Channel{}).Where("type = ?", legacyType).Update("type", constant.ChannelTypeHappyHorse).Error; err != nil {
 			return fmt.Errorf("failed to migrate HappyHorse channel type: %w", err)
+		}
+	}
+	return nil
+}
+
+func migrateTopUpInvoiceIssued() error {
+	if err := DB.Model(&TopUp{}).Where("invoice_issued IS NULL").Update("invoice_issued", false).Error; err != nil {
+		return err
+	}
+	var topUps []TopUp
+	if err := DB.Where("invoice_status IS NULL OR invoice_status = ?", "").Find(&topUps).Error; err != nil {
+		return err
+	}
+	for _, topUp := range topUps {
+		status := InvoiceStatusUnissued
+		if topUp.InvoiceIssued {
+			status = InvoiceStatusIssued
+		}
+		if err := DB.Model(&TopUp{}).Where("id = ?", topUp.Id).Update("invoice_status", status).Error; err != nil {
+			return err
 		}
 	}
 	return nil

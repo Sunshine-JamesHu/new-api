@@ -21,18 +21,22 @@ import { getRouteApi } from '@tanstack/react-router'
 import type { OnChangeFn, SortingState } from '@tanstack/react-table'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import {
   DISABLED_ROW_DESKTOP,
   DISABLED_ROW_MOBILE,
   DataTablePage,
+  DataTableToolbar,
   useDataTable,
 } from '@/components/data-table'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { createServerError } from '@/lib/server-error-message'
+import { formatQuota } from '@/lib/format'
+import { Skeleton } from '@/components/ui/skeleton'
 
-import { getUsers, searchUsers } from '../api'
+import { getUsers, searchUsers, getUserStats } from '../api'
 import {
   USER_STATUS,
   getUserStatusOptions,
@@ -168,6 +172,19 @@ export function UsersTable() {
     placeholderData: (previousData) => previousData,
   })
 
+  const { data: stats, isLoading: statsLoading } = useQuery({
+    queryKey: ['users', 'stats', refreshTrigger],
+    queryFn: async () => {
+      const result = await getUserStats()
+      if (!result.success) {
+        toast.error(result.message || t('Failed to load user statistics'))
+        return { remaining_quota: 0 }
+      }
+      return result.data || { remaining_quota: 0 }
+    },
+    placeholderData: (previousData) => previousData,
+  })
+
   const users = data?.items || []
 
   const { table } = useDataTable({
@@ -214,24 +231,41 @@ export function UsersTable() {
       )}
       skeletonKeyPrefix='users-skeleton'
       applyHeaderSize
-      toolbarProps={{
-        searchPlaceholder: t('Filter by username, name or email...'),
-        searchDebounceMs: 500,
-        filters: [
-          {
-            columnId: 'status',
-            title: t('Status'),
-            options: getUserStatusOptions(t),
-            singleSelect: true,
-          },
-          {
-            columnId: 'role',
-            title: t('Role'),
-            options: getUserRoleOptions(t),
-            singleSelect: true,
-          },
-        ],
-      }}
+      toolbar={
+        <div className='flex flex-col gap-2.5 sm:gap-3'>
+          <div className='border-border/60 bg-muted/25 flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm'>
+            <span className='text-muted-foreground'>
+              {t('Unconsumed Balance')}
+            </span>
+            {statsLoading ? (
+              <Skeleton className='h-5 w-28 rounded-md' />
+            ) : (
+              <span className='text-foreground font-mono font-semibold tabular-nums'>
+                {formatQuota(stats?.remaining_quota ?? 0)}
+              </span>
+            )}
+          </div>
+          <DataTableToolbar
+            table={table}
+            searchPlaceholder={t('Filter by username, name or email...')}
+            searchDebounceMs={500}
+            filters={[
+              {
+                columnId: 'status',
+                title: t('Status'),
+                options: getUserStatusOptions(t),
+                singleSelect: true,
+              },
+              {
+                columnId: 'role',
+                title: t('Role'),
+                options: getUserRoleOptions(t),
+                singleSelect: true,
+              },
+            ]}
+          />
+        </div>
+      }
       getRowClassName={(row, { isMobile }) => {
         if (!isDisabledUserRow(row.original)) return undefined
         return isMobile ? DISABLED_ROW_MOBILE : DISABLED_ROW_DESKTOP

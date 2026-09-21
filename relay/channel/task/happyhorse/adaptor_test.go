@@ -2,6 +2,7 @@ package happyhorse
 
 import (
 	"bytes"
+	"github.com/QuantumNous/new-api/constant"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -131,10 +132,10 @@ func TestValidateSetsActionFromModel(t *testing.T) {
 		model      string
 		wantAction string
 	}{
-		{model: "happyhorse-1.0-t2v", wantAction: "textGenerate"},
-		{model: "happyhorse-1.0-i2v", wantAction: "generate"},
-		{model: "happyhorse-1.0-r2v", wantAction: "generate"},
-		{model: "happyhorse-1.0-video-edit", wantAction: "generate"},
+		{model: "happyhorse-1.0-t2v", wantAction: constant.TaskActionTextGenerate},
+		{model: "happyhorse-1.0-i2v", wantAction: constant.TaskActionGenerate},
+		{model: "happyhorse-1.0-r2v", wantAction: constant.TaskActionGenerate},
+		{model: "happyhorse-1.0-video-edit", wantAction: constant.TaskActionGenerate},
 	}
 
 	for _, tt := range tests {

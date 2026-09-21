@@ -63,5 +63,6 @@ func HandleUserViolationBan(ctx context.Context, userID int, apiErr *types.NewAP
 	if err := model.InvalidateUserTokensCache(userID); err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("user violation ban token cache invalidation failed for user %d: %v", userID, err))
 	}
+	go sendViolationBanEmail(user, count, config.Threshold)
 	logger.LogWarn(ctx, fmt.Sprintf("user %d was automatically disabled after %d violation responses", userID, count))
 }

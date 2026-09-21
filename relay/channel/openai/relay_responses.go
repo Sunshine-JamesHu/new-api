@@ -76,8 +76,27 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	var responseTextBuilder strings.Builder
 	imageCounter := &relaycommon.ImageGenerationCallCounter{}
 	imageCommitted := false
+	var streamErr *types.NewAPIError
+
+	var hasCompleted bool
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		if streamErr != nil {
+			sr.Stop(streamErr)
+			return
+		}
+
+		if openAIErr, isErr := extractOpenAIStreamError(data); isErr {
+			logger.LogError(c, fmt.Sprintf("responses stream received error frame: %s, type=%s, code=%v", openAIErr.Message, openAIErr.Type, openAIErr.Code))
+			if c != nil && c.Writer != nil && c.Writer.Written() {
+				_ = helper.StringData(c, data)
+				streamErr = types.WithOpenAIError(*openAIErr, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
+			} else {
+				streamErr = types.WithOpenAIError(*openAIErr, http.StatusInternalServerError)
+			}
+			sr.Stop(streamErr)
+			return
+		}
 
 		// 检查当前数据是否包含 completed 状态和 usage 信息
 		var streamResponse dto.ResponsesStreamResponse
@@ -89,6 +108,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		sendResponsesStreamData(c, streamResponse, data)
 		switch streamResponse.Type {
 		case "response.completed", "response.done":
+			hasCompleted = true
 			if streamResponse.Response != nil {
 				if streamResponse.Response.Usage != nil {
 					incomingUsage := relayconvert.NormalizeResponsesUsage(streamResponse.Response.Usage)
@@ -112,7 +132,27 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				imageCounter.Commit(info)
 				imageCommitted = true
 			}
-		case "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
+		case "response.failed", "response.error":
+			if !imageCommitted {
+				imageCounter.Reset()
+				imageCounter.Commit(info)
+				imageCommitted = true
+			}
+			var opts []types.NewAPIErrorOptions
+			if c != nil && c.Writer != nil && c.Writer.Written() {
+				opts = append(opts, types.ErrOptionWithSkipRetry())
+			}
+			if streamResponse.Response != nil {
+				if oaiErr := streamResponse.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
+					streamErr = types.WithOpenAIError(*oaiErr, http.StatusInternalServerError, opts...)
+					sr.Stop(streamErr)
+					return
+				}
+			}
+			streamErr = types.NewOpenAIError(fmt.Errorf("responses stream failed: %s", streamResponse.Type), types.ErrorCodeBadResponse, http.StatusInternalServerError, opts...)
+			sr.Stop(streamErr)
+			return
+		case "response.incomplete", "response.cancelled", "response.canceled":
 			if !imageCommitted {
 				imageCounter.Reset()
 				imageCounter.Commit(info)
@@ -139,6 +179,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 	})
 
+	if streamErr != nil {
+		return nil, streamErr
+	}
+
 	if usage.CompletionTokens == 0 {
 		// 计算输出文本的 token 数量
 		tempStr := responseTextBuilder.String()
@@ -156,6 +200,24 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	if usage.BillingUsage != nil {
 		usage.BillingUsage = dto.CloneBillingUsageWithEstimatedCompletion(usage.BillingUsage, usage.CompletionTokens)
+	}
+
+	receivedDone := info.StreamStatus != nil && info.StreamStatus.EndReason == relaycommon.StreamEndReasonDone
+	isNormalEnd := (receivedDone || hasCompleted) && (info.StreamStatus == nil || info.StreamStatus.IsNormalEnd())
+
+	if !isNormalEnd && usage.CompletionTokens <= 5 {
+		logger.LogWarn(c, fmt.Sprintf("responses stream ended abnormally with incomplete response: completion_tokens=%d, status=%s",
+			usage.CompletionTokens, info.StreamStatus.Summary()))
+		var opts []types.NewAPIErrorOptions
+		if (c != nil && c.Writer != nil && c.Writer.Written()) || (info.StreamStatus != nil && info.StreamStatus.EndReason == relaycommon.StreamEndReasonClientGone) {
+			opts = append(opts, types.ErrOptionWithSkipRetry())
+		}
+		return nil, types.NewOpenAIError(
+			fmt.Errorf("stream ended abnormally with incomplete response: %s", info.StreamStatus.Summary()),
+			types.ErrorCodeBadResponse,
+			http.StatusInternalServerError,
+			opts...,
+		)
 	}
 
 	return usage, nil

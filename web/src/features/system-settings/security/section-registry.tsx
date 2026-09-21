@@ -101,6 +101,8 @@ const SECURITY_SECTIONS = [
           UserViolationBanRules: settings.UserViolationBanRules,
           UserViolationBanThreshold: settings.UserViolationBanThreshold,
           UserViolationBanWindowHours: settings.UserViolationBanWindowHours,
+          violation_ban_email_subject: settings.violation_ban_email_subject,
+          violation_ban_email_body: settings.violation_ban_email_body,
         }}
       />
     ),

@@ -424,11 +424,11 @@ export function getPerSecondResolution(other: LogOtherData | null): {
   const key = Object.keys(other ?? {})
     .filter((item) => item.startsWith('resolution-'))
     .sort()[0] as `resolution-${string}` | undefined
-  const ratio = key ? other?.[key] : undefined
+  const ratio = key ? (other?.[key] as number | undefined) : undefined
   return {
     key,
     label: key?.replace(/^resolution-/, ''),
-    ratio: ratio != null && Number.isFinite(ratio) && ratio > 0 ? ratio : 1,
+    ratio: typeof ratio === 'number' && Number.isFinite(ratio) && ratio > 0 ? ratio : 1,
   }
 }
 

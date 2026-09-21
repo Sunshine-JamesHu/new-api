@@ -83,7 +83,7 @@ describe('security sidebar visibility', () => {
       result.current
         .find((group) => group.id === 'personal')
         ?.items.map((item) => item.title)
-    ).toEqual(['Wallet', 'Profile', 'Security & Access'])
+    ).toEqual(['Wallet', 'Profile', 'Security & Access', 'Invoices'])
     expect(
       result.current
         .flatMap((group) => group.items)
@@ -179,4 +179,36 @@ describe('audit log sidebar entry', () => {
     expect(titles).not.toContain('Usage Logs')
     expect(titles).toContain('Audit Logs')
   })
+})
+
+describe('invoice sidebar entry', () => {
+  it('default configurations show Invoices in personal group and Invoice Management in admin group', () => {
+    const { result } = sidebarFor()
+    const personalItems =
+      result.current.find((group) => group.id === 'personal')?.items ?? []
+    expect(personalItems.some((item) => item.title === 'Invoices')).toBe(true)
+
+    const adminItems =
+      result.current.find((group) => group.id === 'admin')?.items ?? []
+    expect(
+      adminItems.some((item) => item.title === 'Invoice Management')
+    ).toBe(true)
+  })
+
+  it.each([
+    [{ personal: { enabled: true, invoice: false } }, undefined],
+    [{ personal: { enabled: false } }, { personal: { invoice: true } }],
+    [undefined, { personal: { enabled: true, invoice: false } }],
+    [undefined, { personal: { enabled: false } }],
+  ])(
+    'admin or user disablement hides Invoices (%j, %j)',
+    (admin, user) => {
+      const { result } = sidebarFor(admin, user)
+      expect(
+        result.current
+          .flatMap((group) => group.items)
+          .some((item) => item.title === 'Invoices')
+      ).toBe(false)
+    }
+  )
 })

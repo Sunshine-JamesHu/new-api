@@ -205,13 +205,16 @@ func TestNewApiVideoFetchTaskParsesTaskDtoResultURL(t *testing.T) {
 	defer upstream.Close()
 
 	adaptor := &TaskAdaptor{}
-	resp, err := adaptor.FetchTask(upstream.URL, "sk-newapi", map[string]any{"task_id": "task_upstream"}, "")
+	testTask := &model.Task{
+		TaskID: "task_upstream",
+	}
+	resp, err := adaptor.FetchTask(upstream.URL, "sk-newapi", testTask, "")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
-	taskInfo, err := adaptor.ParseTaskResult(body)
+	taskInfo, err := adaptor.ParseTaskResult(testTask, resp, body)
 	require.NoError(t, err)
 	require.Equal(t, string(model.TaskStatusSuccess), taskInfo.Status)
 	require.Equal(t, "https://example.com/video.mp4", taskInfo.Url)

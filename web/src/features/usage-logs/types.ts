@@ -256,6 +256,8 @@ export interface LogOtherData {
   subscription_consumed?: number
   subscription_remain?: number
   subscription_total?: number
+  seconds?: number
+  [key: string]: unknown
 }
 
 /**

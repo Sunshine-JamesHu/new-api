@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"maps"
 	"strconv"
 	"strings"
@@ -168,6 +169,8 @@ func InitOptionMap() {
 	common.OptionMap["TopUpLink"] = common.TopUpLink
 	common.OptionMap["invoice_email_subject"] = ""
 	common.OptionMap["invoice_email_body"] = ""
+	common.OptionMap["violation_ban_email_subject"] = ""
+	common.OptionMap["violation_ban_email_body"] = ""
 	//common.OptionMap["ChatLink"] = common.ChatLink
 	//common.OptionMap["ChatLink2"] = common.ChatLink2
 	common.OptionMap["QuotaPerUnit"] = strconv.FormatFloat(common.QuotaPerUnit, 'f', -1, 64)
@@ -235,6 +238,17 @@ func SyncOptions(frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if key == "violation_ban_email_subject" {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" || len(trimmed) > 500 || strings.ContainsAny(trimmed, "\r\n") {
+			return fmt.Errorf("email subject is required and must be at most 500 characters")
+		}
+	}
+	if key == "violation_ban_email_body" {
+		if trimmed := strings.TrimSpace(value); trimmed == "" || len(trimmed) > 20000 {
+			return fmt.Errorf("email body is required and must be at most 20000 characters")
+		}
+	}
 	switch key {
 	case "UserViolationBanEnabled":
 		return setting.ValidateUserViolationBanEnabled(value)

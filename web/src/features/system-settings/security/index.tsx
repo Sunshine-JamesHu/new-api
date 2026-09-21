@@ -46,6 +46,9 @@ const defaultSecuritySettings: SecuritySettings = {
   UserViolationBanRules: '[]',
   UserViolationBanThreshold: 0,
   UserViolationBanWindowHours: 0,
+  violation_ban_email_subject: '账号因多次违规已被封禁',
+  violation_ban_email_body:
+    '尊敬的 {{display_name}}：<br><br>由于您的账号多次触发平台违规响应，在收到劝阻后仍继续尝试，平台已对您的账号进行封禁。<br><br>违规次数：{{violation_count}}<br>封禁阈值：{{ban_threshold}}<br><br>如您认为这是误判，请联系平台管理员。<br><br>本邮件由 {{system_name}} 自动发送，请勿直接回复。',
 }
 
 export function SecuritySettings() {
@@ -56,6 +59,15 @@ export function SecuritySettings() {
       defaultSection={SECURITY_DEFAULT_SECTION}
       getSectionContent={getSecuritySectionContent}
       getSectionMeta={getSecuritySectionMeta}
+      resolveSettings={(settings) => ({
+        ...settings,
+        violation_ban_email_subject:
+          settings.violation_ban_email_subject ||
+          defaultSecuritySettings.violation_ban_email_subject,
+        violation_ban_email_body:
+          settings.violation_ban_email_body ||
+          defaultSecuritySettings.violation_ban_email_body,
+      })}
     />
   )
 }

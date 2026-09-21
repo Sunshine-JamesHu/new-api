@@ -84,6 +84,7 @@ export const CHANNEL_TYPES = {
   59: 'Sub2API',
   60: 'New API',
   61: 'Task Plugin',
+  998: 'HappyHorse',
 } as const
 
 export type ChannelProviderPresentation = {
@@ -162,6 +163,9 @@ export const CHANNEL_PROVIDER_PRESENTATION: Partial<
   59: { descriptionKey: 'Connect to model services through a Sub2API gateway' },
   60: {
     descriptionKey: 'Connect to model services from another New API instance',
+  },
+  998: {
+    descriptionKey: 'HappyHorse DashScope video generation service',
   },
 } satisfies Record<
   Exclude<keyof typeof CHANNEL_TYPES, 0 | typeof CHANNEL_TYPE_TASK_PLUGIN>,

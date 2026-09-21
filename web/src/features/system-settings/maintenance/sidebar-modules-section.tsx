@@ -136,6 +136,10 @@ export function SidebarModulesSection({
         title: t('Security & Access'),
         description: t('Manage your security settings and account access'),
       },
+      invoice: {
+        title: t('Invoices'),
+        description: t('Manage invoice applications and invoice titles.'),
+      },
     },
     admin: {
       channel: {

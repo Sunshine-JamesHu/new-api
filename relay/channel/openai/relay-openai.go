@@ -121,7 +121,26 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	seenStreamToolCalls := make(map[string]struct{})
 	var streamFunctionCallNames []string
 
+	var streamAPIError *types.NewAPIError
+	var hasValidFinishReason bool
+
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		if openAIErr, isErr := extractOpenAIStreamError(data); isErr {
+			logger.LogError(c, fmt.Sprintf("stream received error frame: %s, type=%s, code=%v", openAIErr.Message, openAIErr.Type, openAIErr.Code))
+			if c != nil && c.Writer != nil && c.Writer.Written() {
+				_ = helper.StringData(c, data)
+				streamAPIError = types.WithOpenAIError(*openAIErr, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
+			} else {
+				streamAPIError = types.WithOpenAIError(*openAIErr, http.StatusInternalServerError)
+			}
+			sr.Stop(streamAPIError)
+			return
+		}
+
+		if hasFinishReason(data) {
+			hasValidFinishReason = true
+		}
+
 		if lastStreamData != "" {
 			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				common.SysLog("error handling stream format: " + err.Error())
@@ -141,6 +160,10 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 		}
 	})
+
+	if streamAPIError != nil {
+		return nil, streamAPIError
+	}
 
 	// 处理最后的响应
 	shouldSendLastResp := true
@@ -172,15 +195,38 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		}
 	}
 
+	if !containStreamUsage {
+		usage = service.ResponseText2Usage(c, responseTextBuilder.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+		usage.CompletionTokens += toolCount * 7
+	}
+
+	receivedDone := info.StreamStatus != nil && info.StreamStatus.EndReason == relaycommon.StreamEndReasonDone
+	isNormalEnd := (receivedDone || hasValidFinishReason) && (info.StreamStatus == nil || info.StreamStatus.IsNormalEnd())
+
+	if !isNormalEnd && usage.CompletionTokens <= 5 {
+		logger.LogWarn(c, fmt.Sprintf("stream ended abnormally with incomplete response: completion_tokens=%d, status=%s",
+			usage.CompletionTokens, info.StreamStatus.Summary()))
+		var opts []types.NewAPIErrorOptions
+		if (c != nil && c.Writer != nil && c.Writer.Written()) || (info.StreamStatus != nil && info.StreamStatus.EndReason == relaycommon.StreamEndReasonClientGone) {
+			opts = append(opts, types.ErrOptionWithSkipRetry())
+		}
+		return nil, types.NewOpenAIError(
+			fmt.Errorf("stream ended abnormally with incomplete response: %s", info.StreamStatus.Summary()),
+			types.ErrorCodeBadResponse,
+			http.StatusInternalServerError,
+			opts...,
+		)
+	}
+
+	if !isNormalEnd {
+		logger.LogWarn(c, fmt.Sprintf("stream ended prematurely but generated %d tokens, proceeding with partial settlement: %s",
+			usage.CompletionTokens, info.StreamStatus.Summary()))
+	}
+
 	if info.RelayFormat == types.RelayFormatOpenAI {
 		if shouldSendLastResp {
 			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
 		}
-	}
-
-	if !containStreamUsage {
-		usage = service.ResponseText2Usage(c, responseTextBuilder.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
-		usage.CompletionTokens += toolCount * 7
 	}
 
 	applyUsagePostProcessing(info, usage, common.StringToByteSlice(usageFrame))

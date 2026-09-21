@@ -161,6 +161,82 @@ func processCompletionsStreamResponse(streamResponse dto.CompletionsStreamRespon
 	}
 }
 
+func extractOpenAIStreamError(data string) (*types.OpenAIError, bool) {
+	if data == "" {
+		return nil, false
+	}
+	var payload struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+		Error   any    `json:"error"`
+	}
+	if err := common.UnmarshalJsonStr(data, &payload); err != nil {
+		return nil, false
+	}
+	if payload.Error != nil {
+		if oaiErr := dto.GetOpenAIError(payload.Error); oaiErr != nil {
+			if oaiErr.Type == "" {
+				if payload.Type != "" {
+					oaiErr.Type = payload.Type
+				} else {
+					oaiErr.Type = "server_error"
+				}
+			}
+			if strings.TrimSpace(oaiErr.Message) == "" {
+				if strings.TrimSpace(payload.Message) != "" {
+					oaiErr.Message = strings.TrimSpace(payload.Message)
+				} else {
+					oaiErr.Message = "upstream stream error"
+				}
+			}
+			return oaiErr, true
+		}
+	}
+	payloadType := strings.ToLower(strings.TrimSpace(payload.Type))
+	if payloadType == "error" || payloadType == "upstream_error" || payloadType == "server_error" || strings.HasSuffix(payloadType, "_error") || payloadType == "response.failed" || payloadType == "response.error" {
+		var respPayload struct {
+			Response *dto.OpenAIResponsesResponse `json:"response"`
+		}
+		if err := common.UnmarshalJsonStr(data, &respPayload); err == nil && respPayload.Response != nil {
+			if oaiErr := respPayload.Response.GetOpenAIError(); oaiErr != nil && strings.TrimSpace(oaiErr.Message) != "" {
+				return oaiErr, true
+			}
+		}
+		msg := strings.TrimSpace(payload.Message)
+		if msg == "" {
+			msg = "upstream stream error"
+		}
+		return &types.OpenAIError{
+			Type:    payloadType,
+			Message: msg,
+		}, true
+	}
+	return nil, false
+}
+
+func hasFinishReason(data string) bool {
+	if data == "" {
+		return false
+	}
+	var streamResponse dto.ChatCompletionsStreamResponse
+	if err := common.UnmarshalJsonStr(data, &streamResponse); err == nil {
+		for _, choice := range streamResponse.Choices {
+			if choice.FinishReason != nil && *choice.FinishReason != "" && *choice.FinishReason != "null" {
+				return true
+			}
+		}
+	}
+	var completionsResp dto.CompletionsStreamResponse
+	if err := common.UnmarshalJsonStr(data, &completionsResp); err == nil {
+		for _, choice := range completionsResp.Choices {
+			if choice.FinishReason != "" && choice.FinishReason != "null" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func handleLastResponse(lastStreamData string, responseId *string, createAt *int64,
 	systemFingerprint *string, model *string, usage **dto.Usage,
 	containStreamUsage *bool, info *relaycommon.RelayInfo,

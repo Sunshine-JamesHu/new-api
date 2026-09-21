@@ -80,6 +80,11 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 			continue
 		}
 
+		if openAIErr, isErr := extractOpenAIStreamError(data); isErr {
+			streamErr = types.WithOpenAIError(*openAIErr, http.StatusInternalServerError)
+			break
+		}
+
 		var streamResp dto.ResponsesStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResp); err != nil {
 			logger.LogError(c, "failed to unmarshal buffered responses stream event: "+err.Error())
@@ -118,12 +123,29 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	if finalResponse == nil {
+		if streamErr != nil {
+			return nil, streamErr
+		}
 		finalResponse = &dto.OpenAIResponsesResponse{
 			ID:        helper.GetResponseID(c),
 			CreatedAt: int(time.Now().Unix()),
 			Model:     info.UpstreamModelName,
 			Status:    []byte(`"completed"`),
 		}
+		accumulator.SupplementResponseOutput(finalResponse)
+		responseValue, usage, err := convertResponsesResponseForClient(c, info, finalResponse)
+		if err != nil {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+		if usage != nil && usage.CompletionTokens <= 5 {
+			return nil, types.NewOpenAIError(fmt.Errorf("buffered responses stream ended incomplete"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+		}
+		responseBody, err := common.Marshal(responseValue)
+		if err != nil {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+		}
+		service.IOCopyBytesGracefully(c, resp, responseBody)
+		return usage, nil
 	}
 	accumulator.SupplementResponseOutput(finalResponse)
 
@@ -244,8 +266,22 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		}
 	}
 
+	var hasCompleted bool
+
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if streamErr != nil {
+			sr.Stop(streamErr)
+			return
+		}
+
+		if openAIErr, isErr := extractOpenAIStreamError(data); isErr {
+			logger.LogError(c, fmt.Sprintf("responses to chat stream received error frame: %s, type=%s, code=%v", openAIErr.Message, openAIErr.Type, openAIErr.Code))
+			if c != nil && c.Writer != nil && c.Writer.Written() {
+				_ = helper.StringData(c, data)
+				streamErr = types.WithOpenAIError(*openAIErr, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
+			} else {
+				streamErr = types.WithOpenAIError(*openAIErr, http.StatusInternalServerError)
+			}
 			sr.Stop(streamErr)
 			return
 		}
@@ -257,15 +293,23 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			return
 		}
 
+		if streamResp.Type == "response.completed" || streamResp.Type == "response.done" {
+			hasCompleted = true
+		}
+
 		if streamResp.Type == "response.error" || streamResp.Type == "response.failed" {
+			var opts []types.NewAPIErrorOptions
+			if c != nil && c.Writer != nil && c.Writer.Written() {
+				opts = append(opts, types.ErrOptionWithSkipRetry())
+			}
 			if streamResp.Response != nil {
 				if oaiErr := streamResp.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
-					streamErr = types.WithOpenAIError(*oaiErr, http.StatusInternalServerError)
+					streamErr = types.WithOpenAIError(*oaiErr, http.StatusInternalServerError, opts...)
 					sr.Stop(streamErr)
 					return
 				}
 			}
-			streamErr = types.NewOpenAIError(fmt.Errorf("responses stream error: %s", streamResp.Type), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			streamErr = types.NewOpenAIError(fmt.Errorf("responses stream error: %s", streamResp.Type), types.ErrorCodeBadResponse, http.StatusInternalServerError, opts...)
 			sr.Stop(streamErr)
 			return
 		}
@@ -292,6 +336,28 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	if usage == nil || usage.TotalTokens == 0 {
 		usage = service.ResponseText2Usage(c, state.UsageText(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 		state.SetUsage(usage)
+	}
+
+	receivedDone := info.StreamStatus != nil && info.StreamStatus.EndReason == relaycommon.StreamEndReasonDone
+	isNormalEnd := (receivedDone || hasCompleted) && (info.StreamStatus == nil || info.StreamStatus.IsNormalEnd())
+
+	if !isNormalEnd && (usage == nil || usage.CompletionTokens <= 5) {
+		tokens := 0
+		if usage != nil {
+			tokens = usage.CompletionTokens
+		}
+		logger.LogWarn(c, fmt.Sprintf("responses to chat stream ended abnormally with incomplete response: completion_tokens=%d, status=%s",
+			tokens, info.StreamStatus.Summary()))
+		var opts []types.NewAPIErrorOptions
+		if (c != nil && c.Writer != nil && c.Writer.Written()) || (info.StreamStatus != nil && info.StreamStatus.EndReason == relaycommon.StreamEndReasonClientGone) {
+			opts = append(opts, types.ErrOptionWithSkipRetry())
+		}
+		return nil, types.NewOpenAIError(
+			fmt.Errorf("stream ended abnormally with incomplete response: %s", info.StreamStatus.Summary()),
+			types.ErrorCodeBadResponse,
+			http.StatusInternalServerError,
+			opts...,
+		)
 	}
 
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo != nil {

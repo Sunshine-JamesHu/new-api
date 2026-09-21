@@ -52,6 +52,8 @@ func TestMain(m *testing.M) {
 		&model.Channel{},
 		&model.Midjourney{},
 		&model.TopUp{},
+		&model.AffiliateRebate{},
+		&model.Option{},
 		&model.UserSubscription{},
 		&model.SystemTask{},
 		&model.SystemTaskLock{},
@@ -76,6 +78,8 @@ func truncate(t *testing.T) {
 		model.DB.Exec("DELETE FROM channels")
 		model.DB.Exec("DELETE FROM midjourneys")
 		model.DB.Exec("DELETE FROM top_ups")
+		model.DB.Exec("DELETE FROM affiliate_rebates")
+		model.DB.Exec("DELETE FROM options")
 		model.DB.Exec("DELETE FROM user_subscriptions")
 		model.DB.Exec("DELETE FROM system_task_locks")
 		model.DB.Exec("DELETE FROM system_tasks")

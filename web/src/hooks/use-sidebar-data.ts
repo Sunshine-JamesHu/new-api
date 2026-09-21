@@ -36,6 +36,7 @@ import {
   User,
   Users,
   Wallet,
+  ReceiptText,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -126,6 +127,11 @@ export function useSidebarData(): SidebarData {
             url: '/security',
             icon: ShieldCheck,
           },
+          {
+            title: t('Invoices'),
+            url: '/invoices',
+            icon: ReceiptText,
+          },
         ],
       },
       {
@@ -156,6 +162,12 @@ export function useSidebarData(): SidebarData {
             title: t('Subscriptions'),
             url: '/subscriptions',
             icon: CreditCard,
+          },
+          {
+            title: t('Invoice Management'),
+            url: '/invoice-management',
+            icon: ReceiptText,
+            requiredRole: ROLE.ADMIN,
           },
           {
             title: t('System Info'),
