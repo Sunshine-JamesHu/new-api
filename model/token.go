@@ -472,7 +472,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 
 func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
 	var tokens []Token
-	err := DB.Select("id", commonKeyCol).
+	err := DB.Select("id", defaultKeyCol()).
 		Where("user_id = ? AND id IN (?)", userId, ids).
 		Find(&tokens).Error
 	return tokens, err
@@ -490,7 +490,7 @@ func InvalidateUserTokensCache(userId int) error {
 	}
 	var tokens []Token
 	if err := DB.Unscoped().
-		Select("id", commonKeyCol).
+		Select("id", defaultKeyCol()).
 		Where("user_id = ?", userId).
 		Find(&tokens).Error; err != nil {
 		return err
@@ -512,4 +512,11 @@ func invalidateTokensCache(tokens []Token) error {
 		}
 	}
 	return firstErr
+}
+
+func defaultKeyCol() string {
+	if commonKeyCol != "" {
+		return commonKeyCol
+	}
+	return "`key`"
 }
