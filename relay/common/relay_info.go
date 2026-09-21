@@ -2,6 +2,7 @@ package common
 
 import (
 	"encoding/json"
+	"math"
 	"errors"
 	"fmt"
 	"strconv"
@@ -99,6 +100,7 @@ type RelayInfo struct {
 	UsePrice               bool
 	RelayMode              int
 	OriginModelName        string
+	ResponseModel          *ResponseModel
 
 	// BillingModelName is the pricing identity for this request. It is kept
 	// separate from OriginModelName and UpstreamModelName so virtual pricing
@@ -192,6 +194,10 @@ type RelayInfo struct {
 	FinalRequestRelayFormat types.RelayFormat
 
 	StreamStatus *StreamStatus
+	// PerformanceOutputTokens is captured by settlement and sampled once at
+	// the request boundary, independently of billing success or failure.
+	PerformanceOutputTokens      int64
+	PerformanceBusinessRejection bool
 
 	// convOptions caches the converter settings snapshot (see ConvOptions).
 	convOptions *convmeta.Options
@@ -238,6 +244,7 @@ func (info *RelayInfo) RequestedImageCount() int {
 }
 
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
+	info.ResponseModel = nil
 	info.FinalRequestRelayFormat = ""
 	info.RequestConversionChain = nil
 	info.InitRequestConversionChain()
@@ -283,6 +290,15 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	channelOtherSettings, ok := common.GetContextKeyType[dto.ChannelOtherSettings](c, constant.ContextKeyChannelOtherSetting)
 	if ok {
 		channelMeta.ChannelOtherSettings = channelOtherSettings
+	}
+
+	if channelType == constant.ChannelTypeAdvancedCustom &&
+		!channelMeta.ChannelSetting.PassThroughBodyEnabled &&
+		c.Request != nil && c.Request.URL != nil {
+		route, matched := channelMeta.ChannelOtherSettings.AdvancedCustom.MatchPathForModel(c.Request.URL.Path, info.OriginModelName)
+		if matched && route.PassThroughBodyEnabled {
+			channelMeta.ChannelSetting.PassThroughBodyEnabled = true
+		}
 	}
 
 	if streamSupportedChannels[channelMeta.ChannelType] {
@@ -410,6 +426,8 @@ var streamSupportedChannels = map[int]bool{
 	constant.ChannelTypeAdvancedCustom: true,
 	constant.ChannelTypeSub2API:        true,
 	constant.ChannelTypeNewAPI:         true,
+	constant.ChannelTypeVLLM:           true,
+	constant.ChannelTypeSGLang:         true,
 	constant.ChannelTypeTencent:        true,
 }
 
@@ -531,6 +549,9 @@ func reasoningEffortFromRequest(request dto.Request) string {
 		if req != nil && req.GenerationConfig.ThinkingConfig != nil {
 			config := req.GenerationConfig.ThinkingConfig
 			effort = config.ThinkingLevel
+			if canonical, err := kitreasoning.ParseEffort(effort); err == nil {
+				effort = string(canonical)
+			}
 			if effort == "" && config.ThinkingBudget != nil {
 				effort = string(kitreasoning.EffortFromBudget(*config.ThinkingBudget))
 			}
@@ -977,25 +998,56 @@ type TaskSubmitReq struct {
 	Image          string         `json:"image,omitempty"`
 	Images         []string       `json:"images,omitempty"`
 	Size           string         `json:"size,omitempty"`
+	Resolution     string         `json:"resolution,omitempty"`
 	Duration       int            `json:"duration,omitempty"`
 	Seconds        string         `json:"seconds,omitempty"`
 	InputReference string         `json:"input_reference,omitempty"`
+	Input          map[string]any `json:"input,omitempty"`
+	Parameters     map[string]any `json:"parameters,omitempty"`
 	Metadata       map[string]any `json:"metadata,omitempty"`
 }
 
 func (t *TaskSubmitReq) GetPrompt() string {
-	return t.Prompt
+	return t.EffectivePrompt()
 }
 
 func (t *TaskSubmitReq) HasImage() bool {
 	return len(t.Images) > 0
 }
 
+func (t *TaskSubmitReq) EffectivePrompt() string {
+	if t.Metadata != nil {
+		if input, ok := t.Metadata["input"].(map[string]any); ok {
+			if prompt, ok := input["prompt"].(string); ok && strings.TrimSpace(prompt) != "" {
+				return strings.TrimSpace(prompt)
+			}
+		}
+		if prompt, ok := t.Metadata["prompt"].(string); ok && strings.TrimSpace(prompt) != "" {
+			return strings.TrimSpace(prompt)
+		}
+		if content, ok := t.Metadata["content"].([]any); ok {
+			for _, item := range content {
+				if itemMap, ok := item.(map[string]any); ok {
+					if text, ok := itemMap["text"].(string); ok && strings.TrimSpace(text) != "" {
+						return strings.TrimSpace(text)
+					}
+				}
+			}
+		}
+	}
+	if prompt, ok := t.Input["prompt"].(string); ok && strings.TrimSpace(prompt) != "" {
+		return strings.TrimSpace(prompt)
+	}
+	return strings.TrimSpace(t.Prompt)
+}
+
 func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 	type Alias TaskSubmitReq
 	aux := &struct {
-		Metadata json.RawMessage `json:"metadata,omitempty"`
+		Input    json.RawMessage `json:"input,omitempty"`
 		Duration json.RawMessage `json:"duration,omitempty"`
+		Seconds  json.RawMessage `json:"seconds,omitempty"`
+		Metadata json.RawMessage `json:"metadata,omitempty"`
 		*Alias
 	}{
 		Alias: (*Alias)(t),
@@ -1005,17 +1057,41 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
+	if len(aux.Input) > 0 {
+		var inputObj map[string]any
+		if err := common.Unmarshal(aux.Input, &inputObj); err == nil {
+			t.Input = inputObj
+			if prompt, ok := inputObj["prompt"].(string); ok && t.Prompt == "" {
+				t.Prompt = prompt
+			}
+		}
+	}
+
 	if len(aux.Duration) > 0 {
 		var durationInt int
 		if err := common.Unmarshal(aux.Duration, &durationInt); err == nil {
 			t.Duration = durationInt
 		} else {
-			var durationStr string
-			if err := common.Unmarshal(aux.Duration, &durationStr); err == nil && durationStr != "" {
-				if v, err := strconv.Atoi(durationStr); err == nil {
-					t.Duration = v
+			var durationFloat float64
+			if err := common.Unmarshal(aux.Duration, &durationFloat); err == nil {
+				t.Duration = int(math.Ceil(durationFloat))
+			} else {
+				var durationStr string
+				if err := common.Unmarshal(aux.Duration, &durationStr); err == nil && durationStr != "" {
+					if v, err := strconv.ParseFloat(durationStr, 64); err == nil {
+						t.Duration = int(math.Ceil(v))
+					}
 				}
 			}
+		}
+	}
+
+	if len(aux.Seconds) > 0 {
+		var secondsStr string
+		if err := common.Unmarshal(aux.Seconds, &secondsStr); err == nil {
+			t.Seconds = secondsStr
+		} else {
+			t.Seconds = common.JsonRawMessageToString(aux.Seconds)
 		}
 	}
 
