@@ -6905,6 +6905,14 @@
     "Wallet pre-consume bypass threshold (USD)": "Seuil sans pré-débit du portefeuille (USD)",
     "What do you want to change?": "Que souhaitez-vous modifier ?",
     "With these settings, automatic disabling is off for all channels.": "Avec ces paramètres, la désactivation automatique est inactive pour tous les canaux.",
-    "Worker metrics": "Métriques par worker"
+    "Worker metrics": "Métriques par worker",
+    "Activate now": "Activer maintenant",
+    "Activating...": "Activation...",
+    "Later": "Plus tard",
+    "Plugin activation failed": "Échec de l’activation du plugin",
+    "Plugin saved, activation required": "Plugin enregistré, activation requise",
+    "Plugin source exceeds the 8 MiB limit.": "Le code du plugin dépasse la limite de 8 Mio.",
+    "Single .js file, up to 8 MiB. Its source is shown below before upload.": "Un seul fichier .js, jusqu’à 8 Mio. Sa source est affichée ci-dessous avant l’envoi.",
+    "This version is saved but not active. Activate it to replace the current version, or activate it later from the Versions tab.": "Cette version est enregistrée mais inactive. Activez-la pour remplacer la version actuelle, ou activez-la plus tard dans l’onglet Versions."
   }
 }

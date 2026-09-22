@@ -6905,6 +6905,14 @@
     "Wallet pre-consume bypass threshold (USD)": "Ngưỡng ví được miễn khấu trừ trước (USD)",
     "What do you want to change?": "Bạn muốn thay đổi gì?",
     "With these settings, automatic disabling is off for all channels.": "Với cài đặt này, tự động vô hiệu hóa không có hiệu lực với bất kỳ kênh nào.",
-    "Worker metrics": "Số liệu từng worker"
+    "Worker metrics": "Số liệu từng worker",
+    "Activate now": "Kích hoạt ngay",
+    "Activating...": "Đang kích hoạt...",
+    "Later": "Để sau",
+    "Plugin activation failed": "Kích hoạt plugin thất bại",
+    "Plugin saved, activation required": "Đã lưu plugin, cần kích hoạt",
+    "Plugin source exceeds the 8 MiB limit.": "Mã nguồn plugin vượt giới hạn 8 MiB.",
+    "Single .js file, up to 8 MiB. Its source is shown below before upload.": "Một tệp .js duy nhất, tối đa 8 MiB. Mã nguồn được hiển thị bên dưới trước khi tải lên.",
+    "This version is saved but not active. Activate it to replace the current version, or activate it later from the Versions tab.": "Phiên bản này đã được lưu nhưng chưa kích hoạt. Kích hoạt để thay thế phiên bản hiện tại, hoặc kích hoạt sau trong thẻ Phiên bản."
   }
 }
