@@ -256,7 +256,43 @@ func recordClaudeServerToolUse(info *relaycommon.RelayInfo, serverToolUse *dto.C
 	}
 }
 
-func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
+func isStrictZeroUsageSkipBillingChannel(channelType int) bool {
+	return channelType == constant.ChannelTypeSub2API || channelType == constant.ChannelTypeAnthropic
+}
+
+func getClaudeUsageCachedTokens(usage *dto.Usage) int {
+	if usage == nil {
+		return 0
+	}
+	if usage.PromptTokensDetails.CachedTokens > 0 {
+		return usage.PromptTokensDetails.CachedTokens
+	}
+	if usage.PromptCacheHitTokens > 0 {
+		return usage.PromptCacheHitTokens
+	}
+	return 0
+}
+
+func isNormalClaudeStreamEnd(info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) bool {
+	receivedDone := info != nil && info.StreamStatus != nil && info.StreamStatus.EndReason == relaycommon.StreamEndReasonDone
+	hasCompleted := claudeInfo != nil && claudeInfo.Done
+	if !hasCompleted && info != nil && info.StreamStatus != nil && info.StreamStatus.ResponseOutcome() == string(relaycommon.ResponseOutcomeCompleted) {
+		hasCompleted = true
+	}
+	return (receivedDone || hasCompleted) && (info == nil || info.StreamStatus == nil || info.StreamStatus.IsNormalEnd())
+}
+
+func streamStatusSummary(info *relaycommon.RelayInfo) string {
+	if info == nil || info.StreamStatus == nil {
+		return "StreamStatus<nil>"
+	}
+	return info.StreamStatus.Summary()
+}
+
+func finalizeClaudeStreamUsage(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
+	if claudeInfo == nil || claudeInfo.Usage == nil {
+		return
+	}
 	if claudeInfo.Usage.PromptTokens == 0 {
 		//上游出错
 	}
@@ -278,11 +314,14 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 		}
 		claudeInfo.Usage.TotalTokens = claudeInfo.Usage.PromptTokens + claudeInfo.Usage.CompletionTokens
 	}
-	if claudeInfo.Usage != nil {
-		claudeInfo.Usage.UsageSemantic = "anthropic"
-	}
+	claudeInfo.Usage.UsageSemantic = "anthropic"
 	relayconvert.FinalizeClaudeStreamBillingUsage(claudeInfo)
+}
 
+func sendStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
+	if claudeInfo == nil || info == nil {
+		return
+	}
 	if info.RelayFormat == types.RelayFormatClaude {
 		//
 	} else if info.RelayFormat == types.RelayFormatOpenAI {
@@ -312,6 +351,11 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 	}
 }
 
+func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
+	finalizeClaudeStreamUsage(c, info, claudeInfo)
+	sendStreamFinalResponse(c, info, claudeInfo)
+}
+
 func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*dto.Usage, *types.NewAPIError) {
 	claudeInfo := &ClaudeResponseInfo{
 		ResponseId:   helper.GetResponseID(c),
@@ -332,7 +376,40 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 		return nil, err
 	}
 
-	HandleStreamFinalResponse(c, info, claudeInfo)
+	finalizeClaudeStreamUsage(c, info, claudeInfo)
+
+	channelType := 0
+	if info != nil {
+		channelType = info.GetChannelType()
+	}
+	isNormalEnd := isNormalClaudeStreamEnd(info, claudeInfo)
+	cachedTokens := getClaudeUsageCachedTokens(claudeInfo.Usage)
+	completionTokens := 0
+	if claudeInfo.Usage != nil {
+		completionTokens = claudeInfo.Usage.CompletionTokens
+	}
+
+	if isStrictZeroUsageSkipBillingChannel(channelType) && !isNormalEnd && cachedTokens == 0 && completionTokens == 0 {
+		logger.LogWarn(c, fmt.Sprintf("stream ended abnormally with incomplete response: completion_tokens=0, cached_tokens=0, status=%s",
+			streamStatusSummary(info)))
+		var opts []types.NewAPIErrorOptions
+		if (c != nil && c.Writer != nil && c.Writer.Written()) || (info != nil && info.StreamStatus != nil && info.StreamStatus.EndReason == relaycommon.StreamEndReasonClientGone) {
+			opts = append(opts, types.ErrOptionWithSkipRetry())
+		}
+		return nil, types.NewOpenAIError(
+			fmt.Errorf("stream ended abnormally with incomplete response: %s", streamStatusSummary(info)),
+			types.ErrorCodeBadResponse,
+			http.StatusInternalServerError,
+			opts...,
+		)
+	}
+
+	if !isNormalEnd {
+		logger.LogWarn(c, fmt.Sprintf("stream ended prematurely but generated %d tokens (cached: %d), proceeding with partial settlement: %s",
+			completionTokens, cachedTokens, streamStatusSummary(info)))
+	}
+
+	sendStreamFinalResponse(c, info, claudeInfo)
 	return claudeInfo.Usage, nil
 }
 

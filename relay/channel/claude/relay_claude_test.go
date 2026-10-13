@@ -1,11 +1,14 @@
 package claude
 
 import (
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -359,6 +362,9 @@ func TestBuildOpenAIStyleUsageFromClaudeUsageDefaultsAggregateCacheCreationTo5m(
 func applyOpenAIChatReasoningThroughHandlerOrder(t *testing.T, original dto.GeneralOpenAIRequest) (*dto.GeneralOpenAIRequest, *relaycommon.RelayInfo) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
+	if constant.StreamingTimeout == 0 {
+		constant.StreamingTimeout = 30
+	}
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 
 	info := &relaycommon.RelayInfo{
@@ -453,4 +459,164 @@ func TestClaudeResponsePassesInputTransformationsThrough(t *testing.T) {
 		transformations + `,"usage":{"input_tokens":5,"output_tokens":1}}}`
 	require.Nil(t, HandleStreamResponseData(c, info, &ClaudeResponseInfo{Usage: &dto.Usage{}}, event))
 	assert.Contains(t, w.Body.String(), "data: "+event+"\n")
+}
+
+func TestIsStrictZeroUsageSkipBillingChannel(t *testing.T) {
+	require.True(t, isStrictZeroUsageSkipBillingChannel(constant.ChannelTypeSub2API))
+	require.True(t, isStrictZeroUsageSkipBillingChannel(constant.ChannelTypeAnthropic))
+	require.False(t, isStrictZeroUsageSkipBillingChannel(constant.ChannelTypeOpenAI))
+	require.False(t, isStrictZeroUsageSkipBillingChannel(constant.ChannelTypeAzure))
+	require.False(t, isStrictZeroUsageSkipBillingChannel(constant.ChannelTypeAws))
+}
+
+func TestGetClaudeUsageCachedTokens(t *testing.T) {
+	require.Equal(t, 0, getClaudeUsageCachedTokens(nil))
+	require.Equal(t, 0, getClaudeUsageCachedTokens(&dto.Usage{}))
+	require.Equal(t, 50, getClaudeUsageCachedTokens(&dto.Usage{
+		PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 50},
+	}))
+	require.Equal(t, 30, getClaudeUsageCachedTokens(&dto.Usage{
+		PromptCacheHitTokens: 30,
+	}))
+	require.Equal(t, 50, getClaudeUsageCachedTokens(&dto.Usage{
+		PromptTokensDetails:  dto.InputTokenDetails{CachedTokens: 50},
+		PromptCacheHitTokens: 30,
+	}))
+}
+
+func TestIsNormalClaudeStreamEnd(t *testing.T) {
+	info := &relaycommon.RelayInfo{StreamStatus: relaycommon.NewStreamStatus()}
+	info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+	claudeInfo := &ClaudeResponseInfo{Done: true}
+	require.True(t, isNormalClaudeStreamEnd(info, claudeInfo))
+
+	info = &relaycommon.RelayInfo{StreamStatus: relaycommon.NewStreamStatus()}
+	info.StreamStatus.MarkCompleted()
+	info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+	claudeInfo = &ClaudeResponseInfo{Done: false}
+	require.True(t, isNormalClaudeStreamEnd(info, claudeInfo))
+
+	info = &relaycommon.RelayInfo{StreamStatus: relaycommon.NewStreamStatus()}
+	info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+	claudeInfo = &ClaudeResponseInfo{Done: false}
+	require.False(t, isNormalClaudeStreamEnd(info, claudeInfo))
+
+	info = &relaycommon.RelayInfo{StreamStatus: relaycommon.NewStreamStatus()}
+	info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, nil)
+	claudeInfo = &ClaudeResponseInfo{Done: true}
+	require.False(t, isNormalClaudeStreamEnd(info, claudeInfo))
+}
+
+func TestClaudeStreamHandler_AbnormalZeroUsageSkipBilling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name              string
+		channelType       int
+		sseBody           string
+		expectSkipBilling bool
+	}{
+		{
+			name:              "sub2api abnormal eof 0 output 0 cache skips billing",
+			channelType:       constant.ChannelTypeSub2API,
+			sseBody:           "data: " + `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-3-5-sonnet","content":[],"usage":{"input_tokens":500,"output_tokens":0,"cache_read_input_tokens":0}}}` + "\n\n",
+			expectSkipBilling: true,
+		},
+		{
+			name:              "anthropic abnormal eof 0 output 0 cache skips billing",
+			channelType:       constant.ChannelTypeAnthropic,
+			sseBody:           "data: " + `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-3-5-sonnet","content":[],"usage":{"input_tokens":500,"output_tokens":0,"cache_read_input_tokens":0}}}` + "\n\n",
+			expectSkipBilling: true,
+		},
+		{
+			name:              "sub2api abnormal eof with cache hit does not skip billing",
+			channelType:       constant.ChannelTypeSub2API,
+			sseBody:           "data: " + `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-3-5-sonnet","content":[],"usage":{"input_tokens":500,"output_tokens":0,"cache_read_input_tokens":200}}}` + "\n\n",
+			expectSkipBilling: false,
+		},
+		{
+			name:              "anthropic abnormal eof with cache hit does not skip billing",
+			channelType:       constant.ChannelTypeAnthropic,
+			sseBody:           "data: " + `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-3-5-sonnet","content":[],"usage":{"input_tokens":500,"output_tokens":0,"cache_read_input_tokens":200}}}` + "\n\n",
+			expectSkipBilling: false,
+		},
+		{
+			name:        "sub2api abnormal eof with output tokens does not skip billing",
+			channelType: constant.ChannelTypeSub2API,
+			sseBody: "data: " + `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-3-5-sonnet","content":[],"usage":{"input_tokens":500,"output_tokens":0,"cache_read_input_tokens":0}}}` + "\n\n" +
+				"data: " + `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}` + "\n\n" +
+				"data: " + `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello world"}}` + "\n\n",
+			expectSkipBilling: false,
+		},
+		{
+			name:        "sub2api normal completion does not skip billing",
+			channelType: constant.ChannelTypeSub2API,
+			sseBody: "data: " + `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-3-5-sonnet","content":[],"usage":{"input_tokens":500,"output_tokens":0,"cache_read_input_tokens":0}}}` + "\n\n" +
+				"data: " + `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":0}}` + "\n\n" +
+				"data: " + `{"type":"message_stop"}` + "\n\n",
+			expectSkipBilling: false,
+		},
+		{
+			name:              "azure channel abnormal eof does not trigger strict claude skip",
+			channelType:       constant.ChannelTypeAzure,
+			sseBody:           "data: " + `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-3-5-sonnet","content":[],"usage":{"input_tokens":500,"output_tokens":0,"cache_read_input_tokens":0}}}` + "\n\n",
+			expectSkipBilling: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
+
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(tt.sseBody)),
+			}
+			info := &relaycommon.RelayInfo{
+				RelayFormat: types.RelayFormatClaude,
+				ChannelMeta: &relaycommon.ChannelMeta{
+					ChannelType:       tt.channelType,
+					UpstreamModelName: "claude-3-5-sonnet",
+				},
+			}
+
+			usage, apiErr := ClaudeStreamHandler(c, resp, info)
+			if tt.expectSkipBilling {
+				require.NotNil(t, apiErr)
+				assert.Equal(t, types.ErrorCodeBadResponse, apiErr.GetErrorCode())
+				assert.Nil(t, usage)
+			} else {
+				require.Nil(t, apiErr)
+				require.NotNil(t, usage)
+			}
+		})
+	}
+}
+
+func TestClaudeResponsesStreamHandler_AbnormalZeroUsageSkipBilling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/v1/responses", nil)
+
+	sseBody := "data: " + `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-3-5-sonnet","content":[],"usage":{"input_tokens":500,"output_tokens":0,"cache_read_input_tokens":0}}}` + "\n\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(sseBody)),
+	}
+	info := &relaycommon.RelayInfo{
+		RelayFormat: types.RelayFormatOpenAIResponses,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelType:       constant.ChannelTypeSub2API,
+			UpstreamModelName: "claude-3-5-sonnet",
+		},
+	}
+
+	usage, apiErr := ClaudeResponsesStreamHandler(c, resp, info)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, types.ErrorCodeBadResponse, apiErr.GetErrorCode())
+	assert.Nil(t, usage)
 }

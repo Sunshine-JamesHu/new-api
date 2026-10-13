@@ -165,7 +165,39 @@ func ClaudeResponsesStreamHandler(c *gin.Context, resp *http.Response, info *rel
 		return claudeInfo.Usage, nil
 	}
 
-	HandleStreamFinalResponse(c, info, claudeInfo)
+	finalizeClaudeStreamUsage(c, info, claudeInfo)
+
+	channelType := 0
+	if info != nil {
+		channelType = info.GetChannelType()
+	}
+	isNormalEnd := isNormalClaudeStreamEnd(info, claudeInfo)
+	cachedTokens := getClaudeUsageCachedTokens(claudeInfo.Usage)
+	completionTokens := 0
+	if claudeInfo.Usage != nil {
+		completionTokens = claudeInfo.Usage.CompletionTokens
+	}
+
+	if isStrictZeroUsageSkipBillingChannel(channelType) && !isNormalEnd && cachedTokens == 0 && completionTokens == 0 {
+		logger.LogWarn(c, fmt.Sprintf("responses stream ended abnormally with incomplete response: completion_tokens=0, cached_tokens=0, status=%s",
+			streamStatusSummary(info)))
+		var opts []types.NewAPIErrorOptions
+		if (c != nil && c.Writer != nil && c.Writer.Written()) || (info != nil && info.StreamStatus != nil && info.StreamStatus.EndReason == relaycommon.StreamEndReasonClientGone) {
+			opts = append(opts, types.ErrOptionWithSkipRetry())
+		}
+		return nil, types.NewOpenAIError(
+			fmt.Errorf("stream ended abnormally with incomplete response: %s", streamStatusSummary(info)),
+			types.ErrorCodeBadResponse,
+			http.StatusInternalServerError,
+			opts...,
+		)
+	}
+
+	if !isNormalEnd {
+		logger.LogWarn(c, fmt.Sprintf("responses stream ended prematurely but generated %d tokens (cached: %d), proceeding with partial settlement: %s",
+			completionTokens, cachedTokens, streamStatusSummary(info)))
+	}
+
 	openAIUsage := buildOpenAIStyleUsageFromClaudeUsage(claudeInfo.Usage)
 	state.SetUsage(&openAIUsage)
 	finalResults, err := service.FinalizeStreamResponse(c, info, state)
