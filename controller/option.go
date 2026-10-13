@@ -204,7 +204,7 @@ func UpdateOption(c *gin.Context) {
 		}
 	case "payment_setting.affiliate_rebate_enabled":
 		if option.Value == "true" && !operation_setting.IsPaymentComplianceConfirmed() {
-			common.ApiErrorI18n(c, i18n.MsgPaymentComplianceRequired)
+			common.ApiErrorT(c, "Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
 			return
 		}
 	default:
