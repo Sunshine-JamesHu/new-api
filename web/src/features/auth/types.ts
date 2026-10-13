@@ -186,6 +186,8 @@ export interface SystemStatus {
   affiliate_rebate_enabled?: boolean
   affiliate_rebate_rate?: number
   custom_oauth_providers?: CustomOAuthProviderInfo[]
+  log_export_enabled?: boolean
+  log_max_range_days?: number
   [key: string]: unknown
 }
 
