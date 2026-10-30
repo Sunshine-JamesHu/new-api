@@ -147,7 +147,7 @@ func TestOaiStreamHandler_NormalOneTokenResponse(t *testing.T) {
 	usage, err := OaiStreamHandler(c, info, resp)
 	require.Nil(t, err)
 	require.NotNil(t, usage)
-	assert.Equal(t, 2, usage.CompletionTokens)
+	assert.Equal(t, 1, usage.CompletionTokens)
 	assert.Contains(t, recorder.Body.String(), "[DONE]")
 }
 
@@ -210,9 +210,10 @@ func TestOaiResponsesStreamHandler_FailureEvent(t *testing.T) {
 	}
 
 	usage, err := OaiResponsesStreamHandler(c, info, resp)
-	require.NotNil(t, err)
-	assert.Nil(t, usage)
-	assert.Contains(t, err.Error(), "The server encountered an error")
+	require.Nil(t, err)
+	require.NotNil(t, usage)
+	assert.True(t, info.StreamStatus.ResponseFailed())
+	assert.Equal(t, "failed", info.StreamStatus.ResponseOutcome())
 }
 
 func TestOaiResponsesToChatStreamHandler_ErrorFrame(t *testing.T) {
@@ -296,9 +297,9 @@ func TestOaiResponsesStreamHandler_EarlyDisconnect(t *testing.T) {
 	}
 
 	usage, err := OaiResponsesStreamHandler(c, info, resp)
-	require.NotNil(t, err)
-	assert.Nil(t, usage)
-	assert.Equal(t, types.ErrorCodeBadResponse, err.GetErrorCode())
+	require.Nil(t, err)
+	require.NotNil(t, usage)
+	assert.Equal(t, relaycommon.StreamEndReasonEOF, info.StreamStatus.EndReason)
 }
 
 func TestOaiResponsesToChatBufferedStreamHandler_ErrorFrame(t *testing.T) {

@@ -12,8 +12,10 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func startInvoiceSMTP(t *testing.T) (string, int, <-chan string) {
@@ -167,7 +169,23 @@ func TestSaveInvoiceTemplateRejectsHeaderInjectionAndOversizedValues(t *testing.
 	assert.Error(t, SaveInvoiceTemplate(InvoiceTemplate{Subject: "ok", Body: strings.Repeat("x", 20001)}))
 }
 
+func setupInvoiceTestDB(t *testing.T) {
+	t.Helper()
+	if model.DB == nil {
+		db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		require.NoError(t, err)
+		model.DB = db
+	}
+	require.NoError(t, model.DB.AutoMigrate(
+		&model.InvoiceTitle{},
+		&model.InvoiceApplication{},
+		&model.InvoiceApplicationOrder{},
+		&model.TopUp{},
+	))
+}
+
 func TestIssueInvoiceEndToEndSendsPDFBeforeMarkingOrdersIssued(t *testing.T) {
+	setupInvoiceTestDB(t)
 	originalServer, originalPort := common.SMTPServer, common.SMTPPort
 	originalAccount, originalFrom, originalToken := common.SMTPAccount, common.SMTPFrom, common.SMTPToken
 	originalSSL, originalStartTLS := common.SMTPSSLEnabled, common.SMTPStartTLSEnabled
@@ -204,6 +222,7 @@ func TestIssueInvoiceEndToEndSendsPDFBeforeMarkingOrdersIssued(t *testing.T) {
 }
 
 func TestIssueInvoiceSMTPFailureLeavesApplicationAndOrdersIssuing(t *testing.T) {
+	setupInvoiceTestDB(t)
 	model.DB.Exec("DELETE FROM invoice_application_orders")
 	model.DB.Exec("DELETE FROM invoice_applications")
 	model.DB.Exec("DELETE FROM invoice_titles")

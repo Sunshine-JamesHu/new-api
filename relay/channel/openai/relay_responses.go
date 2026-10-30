@@ -76,26 +76,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	defer service.CloseResponseBodyGracefully(resp)
 
 	accumulator := service.NewResponsesUsageAccumulator(info)
-	var streamErr *types.NewAPIError
-	var hasCompleted bool
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
-		if streamErr != nil {
-			sr.Stop(streamErr)
-			return
-		}
-
-		if openAIErr, isErr := extractOpenAIStreamError(data); isErr {
-			logger.LogError(c, fmt.Sprintf("responses stream received error frame: %s, type=%s, code=%v", openAIErr.Message, openAIErr.Type, openAIErr.Code))
-			if c != nil && c.Writer != nil && c.Writer.Written() {
-				_ = helper.StringData(c, data)
-				streamErr = types.WithOpenAIError(*openAIErr, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
-			} else {
-				streamErr = types.WithOpenAIError(*openAIErr, http.StatusInternalServerError)
-			}
-			sr.Stop(streamErr)
-			return
-		}
 
 		// 检查当前数据是否包含 completed 状态和 usage 信息
 		var streamResponse dto.ResponsesStreamResponse
@@ -104,61 +86,23 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sr.Error(err)
 			return
 		}
-
 		if streamResponse.Response != nil {
 			data = string(rewriteSGLangResponsesCreatedAt(info, []byte(data), "response.created_at", streamResponse.Response.CreatedAt))
 		}
-		sendResponsesStreamData(c, streamResponse, data)
 		accumulator.Observe(&streamResponse, common.StringToByteSlice(data))
-
-		switch streamResponse.Type {
-		case "response.completed", "response.done":
-			hasCompleted = true
-		case "response.failed", "response.error":
-			var opts []types.NewAPIErrorOptions
-			if c != nil && c.Writer != nil && c.Writer.Written() {
-				opts = append(opts, types.ErrOptionWithSkipRetry())
-			}
-			if streamResponse.Response != nil {
-				if oaiErr := streamResponse.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
-					streamErr = types.WithOpenAIError(*oaiErr, http.StatusInternalServerError, opts...)
-					sr.Stop(streamErr)
-					return
-				}
-			}
-			streamErr = types.NewOpenAIError(fmt.Errorf("responses stream failed: %s", streamResponse.Type), types.ErrorCodeBadResponse, http.StatusInternalServerError, opts...)
-			sr.Stop(streamErr)
+		if err := helper.ResponseChunkData(c, streamResponse, data); err != nil {
+			sr.Stop(err)
 			return
+		}
+		if (streamResponse.Type == "response.completed" || streamResponse.Type == "response.done") &&
+			streamResponse.Response != nil && info.StreamStatus.ResponseOutcome() == string(relaycommon.ResponseOutcomeCompleted) {
+			sr.Done()
 		}
 	})
 
-	if streamErr != nil {
-		return nil, streamErr
-	}
-
 	common.SetContextKey(c, constant.ContextKeyResponseStreamStatus, info.StreamStatus)
 	info.StreamStatus.RequireTerminal()
-	usage := accumulator.Finish()
-
-	receivedDone := info.StreamStatus != nil && info.StreamStatus.EndReason == relaycommon.StreamEndReasonDone
-	isNormalEnd := (receivedDone || hasCompleted) && (info.StreamStatus == nil || info.StreamStatus.IsNormalEnd())
-
-	if !isNormalEnd && usage.CompletionTokens <= 5 {
-		logger.LogWarn(c, fmt.Sprintf("responses stream ended abnormally with incomplete response: completion_tokens=%d, status=%s",
-			usage.CompletionTokens, info.StreamStatus.Summary()))
-		var opts []types.NewAPIErrorOptions
-		if (c != nil && c.Writer != nil && c.Writer.Written()) || (info.StreamStatus != nil && info.StreamStatus.EndReason == relaycommon.StreamEndReasonClientGone) {
-			opts = append(opts, types.ErrOptionWithSkipRetry())
-		}
-		return nil, types.NewOpenAIError(
-			fmt.Errorf("stream ended abnormally with incomplete response: %s", info.StreamStatus.Summary()),
-			types.ErrorCodeBadResponse,
-			http.StatusInternalServerError,
-			opts...,
-		)
-	}
-
-	return usage, nil
+	return accumulator.Finish(), nil
 }
 
 func rewriteSGLangResponsesCreatedAt(info *relaycommon.RelayInfo, payload []byte, path string, createdAt dto.IntValue) []byte {
